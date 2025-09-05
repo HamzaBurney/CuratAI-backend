@@ -1,0 +1,9 @@
+supabase 
+python-dotenv
+pydantic
+numpy
+pandas
+fastapi
+uvicorn[standard]
+requests
+python-multipart
