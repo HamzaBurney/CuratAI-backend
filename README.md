@@ -1,4 +1,4 @@
-# Bezeen Backend
+# CuratAI Backend
 
 ## Team members 
 <div align="center">
