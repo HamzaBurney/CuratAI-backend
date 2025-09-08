@@ -11,7 +11,6 @@ router = APIRouter(prefix="/images-upload", tags=["images-upload"])
 
 supabase_service = SupabaseService()
 
-
 @router.post("/zip/", response_model=UploadZipImagesResponse)
 async def upload_zip_images(
     project_id: str = Form(..., description="ID of the project"),
@@ -35,18 +34,24 @@ async def upload_zip_images(
                 status_code=status.HTTP_400_BAD_REQUEST, 
                 detail="Only .zip files are supported"
                 )
-
+        
+        if not supabase_service.validate_project(project_id):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Project with ID {project_id} does not exist"
+            )
         
         logger.info(f"Received zip file: {file.filename} for project_id: {project_id}")
         
         contents = await file.read()
         zip_bytes = io.BytesIO(contents)
         
+        image_data_list = []
+        
         uploaded_files = []
         
-        with zipfile.ZipFile(zip_bytes, "r") as zip_ref:
+        with zipfile.ZipFile(zip_bytes) as zip_ref:
             file_list = zip_ref.namelist()
-            # image_files = [f for f in file_list if allowed_file(f)]
             
             if not file_list:
                 raise HTTPException(
@@ -54,28 +59,27 @@ async def upload_zip_images(
                     detail="The zip file is empty"
                 )
             
-            uploaded_files = []
-            
             for img_name in file_list:
-                
-                if not allowed_file(img_name):
-                    logger.warning(f"Skipping unsupported file type: {img_name}")
-                    continue
-                
-                with zip_ref.open(img_name) as img_file:
+                if allowed_file(img_name):
+                    try:
+                        with zip_ref.open(img_name) as img_file:
+                            img_bytes = img_file.read()
+                            image_data_list.append((img_name, img_bytes))
+                            
+                            img_url = supabase_service.upload_image(
+                                project_id=project_id,
+                                image_file=img_bytes,
+                                filename=img_name,
+                            )
                     
-                    img_bytes = img_file.read()
-                    
-                    img_url = supabase_service.upload_image(
-                        project_id=project_id,
-                        image_file=img_bytes,
-                        filename=img_name,
-                    )
-                    
-                    if img_url:
-                        uploaded_files.append(img_url)
-                        # logger.info(f"Uploaded image: {img_name} to {img_url}")
-            
+                        if img_url:
+                            uploaded_files.append({"image_url": img_url, "project_id": project_id})
+                            # logger.info(f"Uploaded image: {img_name} to {img_url}")
+                    except Exception as e:
+                        logger.warning(f"Failed to read {img_name}: {e}")
+                        continue       
+        
+        supabase_service.update_images_table(project_id, uploaded_files)
         
         if not uploaded_files:
             raise HTTPException(

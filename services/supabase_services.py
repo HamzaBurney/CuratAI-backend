@@ -38,8 +38,19 @@ class SupabaseService:
         except Exception as e:
             logger.error(f"Supabase connection test failed: {e}")
             return False
-    
-    def update_images_table(self, project_id: str, image_url: str):
+        
+    def validate_project(self, project_id: str) -> bool:
+        try:
+            result = self.supabase.table("projects").select("id").eq("id", project_id).execute()
+            if result.data:
+                return True
+            else:
+                return False
+        except Exception as e:
+            logger.error(f"Failed to validate project ID {project_id}: {e}")
+            return False
+
+    def update_images_table(self, project_id: str, uploaded_images: List[Dict]) -> None:
         """
         Update images table with new image URLs for a given project ID
         
@@ -51,11 +62,8 @@ class SupabaseService:
             True if update successful, False otherwise
         """
         try:
-            # append a new row to the images table 
-            self.supabase.table("images").insert({
-                "image_url": image_url,
-                "project_id": project_id
-            }).execute()
+            # rows = [{"image_url": url, "project_id": project_id} for url in image_url]
+            self.supabase.table("images").insert(uploaded_images).execute()
             logger.info(f"Images table updated successfully for project_id: {project_id}")
             
         except Exception as e:
@@ -76,18 +84,14 @@ class SupabaseService:
         """
         
         try:
-            image_data = None
-            unique_name = f"{project_id}/{file_name}"
-            if hasattr(image, 'read'):
-                if hasattr(image, 'seekable') and callable(image.seekable) and image.seekable():
-                    image.seek(0)
-                image_data = image.read()
-            else:
-                image_data = image
+            
+            unique_name = f"{project_id}/images/{file_name}"
 
-            self.supabase.storage.from_(bucket).upload(unique_name, image_data)
+            self.supabase.storage.from_(bucket).upload(unique_name, image)
             public_url = self.supabase.storage.from_(bucket).get_public_url(unique_name)
-            logger.info(f"File uploaded successfully: {public_url}")
+            
+            logger.info(f"Image uploaded successfully: {unique_name}")
+            
             return public_url
             
             
@@ -95,7 +99,7 @@ class SupabaseService:
             logger.error(f"Failed to upload file to Supabase Storage: {e}")
             return None
         
-    def upload_image(self, project_id: str, image_file: bytes, filename: str) -> Optional[str]:
+    def upload_image(self, project_id: str, image_file, filename: str) -> Optional[str]:
         """
         Upload image to Supabase storage
         
@@ -108,10 +112,6 @@ class SupabaseService:
             Public URL of the uploaded image or None if upload failed
         """
         try:
-            project = self.supabase.table("projects").select("id").eq("id", project_id).execute()
-            if not project.data:
-                logger.warning(f"Project with ID {project_id} does not exist")
-                return None
             
             file_extension = filename.split('.')[-1].lower() if '.' in filename else 'png'
             unique_filename = f"{uuid.uuid4()}_{project_id}.{file_extension}"
@@ -120,10 +120,7 @@ class SupabaseService:
             if not uploaded_url:
                 logger.error(f"Failed to upload image to storage{project_id}")
                 return None
-
-            self.update_images_table(project_id, uploaded_url)
             
-            logger.info(f"Image uploaded successfully: {uploaded_url}")
             return uploaded_url
         except Exception as e:
             logger.error(f"Exception during image upload: {e}")
