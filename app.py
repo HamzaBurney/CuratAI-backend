@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 import uvicorn
 from routes import images_upload_router, auth_router
 from services.images_upload_service import ImagesUploadService
+from routes.project import router as project_router
 
 logging.basicConfig(level=logging.INFO) 
 logger = logging.getLogger(__name__)
@@ -52,6 +53,7 @@ app.add_middleware(
 
 app.include_router(images_upload_router)
 app.include_router(auth_router)
+app.include_router(project_router)
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
