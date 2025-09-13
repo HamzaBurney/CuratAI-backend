@@ -4,8 +4,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import uvicorn
-from routes import images_upload_router
-from services.supabase_services import SupabaseService
+from routes import images_upload_router, auth_router
+from services.images_upload_service import ImagesUploadService
 
 logging.basicConfig(level=logging.INFO) 
 logger = logging.getLogger(__name__)
@@ -16,10 +16,11 @@ async def lifespan(app: FastAPI):
     
     try:
         # Initialize Supabase service
-        supabase_service = SupabaseService()
-        if not supabase_service.test_connection():
-            raise Exception("Failed to connect to Supabase")
-        logger.info("Supabase service connected successfully")
+        # supabase_service = SupabaseService()
+        # if not supabase_service.test_connection():
+        #     raise Exception("Failed to connect to Supabase")
+        # logger.info("Supabase service connected successfully")
+        pass
         
     except Exception as e:
         logger.error(f"Failed to initialize services: {e}")
@@ -50,6 +51,7 @@ app.add_middleware(
 )
 
 app.include_router(images_upload_router)
+app.include_router(auth_router)
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
