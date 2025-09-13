@@ -2,7 +2,7 @@ from fastapi import APIRouter, UploadFile, File, Form, HTTPException, status
 import zipfile
 import io
 from services.images_upload_service import ImagesUploadService
-from utils.images_upload_utils import allowed_file, UploadZipImagesResponse, UploadGoogleDriveImagesRequest, UploadGoogleDriveImagesResponse
+from utils.images_upload_utils import allowed_file
 import logging
 
 logger = logging.getLogger(__name__)
@@ -11,7 +11,7 @@ router = APIRouter(prefix="/images-upload", tags=["images-upload"])
 
 supabase_service = ImagesUploadService()
 
-@router.post("/zip/", response_model=UploadZipImagesResponse)
+@router.post("/zip/")
 async def upload_zip_images(
     project_id: str = Form(..., description="ID of the project"),
     file: UploadFile = File(..., description="Zip file containing images")
@@ -35,10 +35,11 @@ async def upload_zip_images(
                 detail="Only .zip files are supported"
                 )
         
-        if not supabase_service.validate_project(project_id):
+        success, result = supabase_service.validate_project(project_id)
+        if not success:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Project with ID {project_id} does not exist"
+                detail=result
             )
         
         logger.info(f"Received zip file: {file.filename} for project_id: {project_id}")
@@ -66,20 +67,21 @@ async def upload_zip_images(
                             img_bytes = img_file.read()
                             image_data_list.append((img_name, img_bytes))
                             
-                            img_url = supabase_service.upload_image(
+                            success, result = supabase_service.upload_image(
                                 project_id=project_id,
                                 image_file=img_bytes,
                                 filename=img_name,
                             )
                     
-                        if img_url:
+                        if success:
+                            img_url = result.get("image_url")
                             uploaded_files.append({"image_url": img_url, "project_id": project_id})
                             # logger.info(f"Uploaded image: {img_name} to {img_url}")
                     except Exception as e:
                         logger.warning(f"Failed to read {img_name}: {e}")
                         continue       
         
-        supabase_service.update_images_table(project_id, uploaded_files)
+        success, result = supabase_service.update_images_table(project_id, uploaded_files)
         
         if not uploaded_files:
             raise HTTPException(
@@ -87,11 +89,13 @@ async def upload_zip_images(
                 detail="Images could not be uploaded. Ensure the zip contains valid image files."
             )
         
-        return UploadZipImagesResponse(
-            project_id=project_id,
-            status="success",
-            uploaded_images=uploaded_files
-        )
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=result
+            )
+        
+        return result
     
     except HTTPException:
         raise

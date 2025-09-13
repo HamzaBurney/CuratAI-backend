@@ -2,6 +2,7 @@ import logging
 from supabase import create_client, Client
 from config import get_config
 from utils.project_utils import validate_project_name
+from typing import Tuple, Any
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +76,7 @@ class ProjectService:
             logger.error(f"Error creating project: {str(e)}")
             raise
 
-    def delete_project(self, project_name: str, user_id: str) -> None:
+    def delete_project(self, project_id: str) -> Tuple[bool, Any]:
         """
         Delete a project from the projects table.
 
@@ -87,17 +88,21 @@ class ProjectService:
             Exception: If the project could not be deleted.
         """
         try:
-            logger.info(f"Deleting project: {project_name} for user: {user_id}")
+            logger.info(f"Deleting project with ID: {project_id}")
+            
+            response = self.supabase.table("projects").delete().eq("id", project_id).execute()
 
-            response = self.supabase.table("projects").delete().eq("project_name", project_name).eq("user_id", user_id).execute()
+            if not response:
+                logger.error(f"Failed to delete project with ID: {project_id}")
+                return False, {"message": "Project not found or already deleted", "project_id": project_id}
 
-            if not response.data:
-                raise Exception("Project not found or could not be deleted")
-
-            logger.info(f"Project deleted successfully: {project_name}")
+            logger.info(f"Project deleted successfully: {project_id}")
+            
+            return True, {"message": "Project deleted successfully", "project_id": project_id}
+        
         except Exception as e:
             logger.error(f"Error deleting project: {str(e)}")
-            raise
+            return False, {"error": "deletion_failed", "message": str(e), "project_id": project_id}
 
     def get_projects(self, user_id: str) -> list[dict]:
         """

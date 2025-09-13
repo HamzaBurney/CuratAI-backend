@@ -1,5 +1,5 @@
 import logging
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple, Any
 from supabase import create_client, Client
 from config import get_config
 import uuid
@@ -36,18 +36,29 @@ class ImagesUploadService:
             logger.error(f"Supabase connection test failed: {e}")
             return False
         
-    def validate_project(self, project_id: str) -> bool:
+    def validate_project(self, project_id: str) -> Tuple[bool, Any]:
         try:
             result = self.supabase.table("projects").select("id").eq("id", project_id).execute()
             if result.data:
-                return True
+                return True, {
+                    "message": "Project exists",
+                    "project_id": project_id
+                }
             else:
-                return False
+                return False, {
+                    "error": "not_found",
+                    "message": f"Project with ID {project_id} does not exist",
+                    "project_id": project_id
+                }
         except Exception as e:
             logger.error(f"Failed to validate project ID {project_id}: {e}")
-            return False
+            return False, {
+                "error": "validation_failed",
+                "message": f"Project does not exist: " + str(e),
+                "project_id": project_id
+            }
 
-    def update_images_table(self, project_id: str, uploaded_images: List[Dict]) -> None:
+    def update_images_table(self, project_id: str, uploaded_images: List[Dict]) -> Tuple[bool, Any]:
         """
         Update images table with new image URLs for a given project ID
         
@@ -62,11 +73,17 @@ class ImagesUploadService:
             # rows = [{"image_url": url, "project_id": project_id} for url in image_url]
             self.supabase.table("images").insert(uploaded_images).execute()
             logger.info(f"Images table updated successfully for project_id: {project_id}")
+            return True, {"message": "Images table updated successfully", 
+                          "project_id": project_id,
+                          "uploaded_count": len(uploaded_images)}
             
         except Exception as e:
             logger.error(f"Failed to update images table: {e}")
+            return False, {"error": "update_failed", 
+                           "message": "Failed to update images table: " + str(e),
+                            "project_id": project_id}
     
-    def upload_image_to_storage(self,project_id: str, file_name: str, image, bucket: str) -> Optional[str]:
+    def upload_image_to_storage(self,project_id: str, file_name: str, image, bucket: str) -> Tuple[bool, Any]:
         """
         Upload image to Supabase storage and return public URL
 
@@ -89,14 +106,22 @@ class ImagesUploadService:
             
             logger.info(f"Image uploaded successfully: {unique_name}")
             
-            return public_url
+            return True, {
+                "message": "Image uploaded successfully",
+                "image_url": public_url,
+                "project_id": project_id
+            }
             
             
         except Exception as e:
             logger.error(f"Failed to upload file to Supabase Storage: {e}")
-            return None
+            return False, {
+                "error": "upload_failed", 
+                "message": "Failed to upload file to storage",
+                "project_id": project_id
+            }
         
-    def upload_image(self, project_id: str, image_file, filename: str) -> Optional[str]:
+    def upload_image(self, project_id: str, image_file, filename: str) -> Tuple[bool, Any]:
         """
         Upload image to Supabase storage
         
@@ -113,12 +138,20 @@ class ImagesUploadService:
             file_extension = filename.split('.')[-1].lower() if '.' in filename else 'png'
             unique_filename = f"{uuid.uuid4()}_{project_id}.{file_extension}"
             
-            uploaded_url = self.upload_image_to_storage(project_id, unique_filename, image_file, "user-images")
-            if not uploaded_url:
+            success, result = self.upload_image_to_storage(project_id, unique_filename, image_file, "user-images")
+            if not success:
                 logger.error(f"Failed to upload image to storage{project_id}")
-                return None
+                return False, {
+                    "error": "upload_failed", 
+                    "message": "Failed to upload image to storage",
+                    "project_id": project_id
+                }
             
-            return uploaded_url
+            return True, result
         except Exception as e:
             logger.error(f"Exception during image upload: {e}")
-            return None
+            return False, {
+                "error": "exception", 
+                "message": str(e),
+                "project_id": project_id
+            }
