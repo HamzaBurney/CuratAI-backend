@@ -1,7 +1,7 @@
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, status
 import zipfile
 import io
-from services.supabase_services import SupabaseService
+from services.images_upload_service import ImagesUploadService
 from utils.images_upload_utils import allowed_file, UploadZipImagesResponse, UploadGoogleDriveImagesRequest, UploadGoogleDriveImagesResponse
 import logging
 
@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/images-upload", tags=["images-upload"])
 
-supabase_service = SupabaseService()
+supabase_service = ImagesUploadService()
 
 @router.post("/zip/", response_model=UploadZipImagesResponse)
 async def upload_zip_images(

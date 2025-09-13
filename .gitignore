@@ -1,5 +1,6 @@
 .env
 venv
+CuratAI
 context.md
 test.md
 __pycache__/

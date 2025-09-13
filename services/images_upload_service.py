@@ -1,15 +1,12 @@
 import logging
-from typing import List, Dict, Any, Optional, Union
+from typing import List, Dict, Optional
 from supabase import create_client, Client
 from config import get_config
 import uuid
-import requests
-import io
-from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
-class SupabaseService:
+class ImagesUploadService:
     """Service for Supabase database operations"""
     def __init__(self):
         """Initialize Supabase client"""
