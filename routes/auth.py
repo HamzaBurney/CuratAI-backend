@@ -69,3 +69,29 @@ async def login(request: LoginRequest):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/user/uid")
+async def get_user_uid():
+    """
+    Retrieve the signed-in user's UID
+
+    Returns:
+        dict: UID of the signed-in user
+    """
+    try:
+        logger.info("Fetching signed-in user's UID")
+        uid = await supabase_service.get_user_uid()
+
+        if not uid:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="UID not found for the signed-in user"
+            )
+
+        logger.info(f"Successfully retrieved UID: {uid}")
+        return {"uid": uid}
+
+    except Exception as e:
+        logger.error(f"Error retrieving UID: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve UID")

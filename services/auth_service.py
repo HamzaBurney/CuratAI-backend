@@ -56,7 +56,6 @@ class AuthService:
             user_record = {
                     "id": result.user.id,
                     "email": request.email,
-                    "password": request.password,
                     "username": request.username
                 }
 
@@ -127,5 +126,26 @@ class AuthService:
         except Exception as e:
             logger.error(f"Error during user login: {e}")
             return False, {"error": "login_failed", "message": str(e)}
-                
     
+    async def get_user_uid(self) -> Optional[str]:
+        """
+        Fetch the signed-in user's UID from Supabase
+
+        Returns:
+            Optional[str]: UID of the signed-in user or None if not found
+        """
+        try:
+            logger.info("Fetching UID for the signed-in user")
+            user_response = self.supabase.auth.get_user()
+
+            if not user_response or not user_response.user or not user_response.user.id:
+                logger.warning("No UID found for the signed-in user")
+                return None
+
+            logger.info(f"UID retrieved: {user_response.user.id}")
+            return user_response.user.id
+
+        except Exception as e:
+            logger.error(f"Error fetching UID: {str(e)}")
+            return None
+

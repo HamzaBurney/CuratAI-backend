@@ -39,3 +39,17 @@ def validate_password(password: str) -> tuple[bool, str]:
         return False, "Password must contain at least one special character (@, $, !, %, *, ?, &)."
 
     return True, "Valid password"
+
+def validate_uid(uid: str) -> bool:
+    """
+    Validates the UID to ensure it is a non-empty string.
+
+    Args:
+        uid (str): The UID to validate
+
+    Returns:
+        bool: True if valid, False otherwise
+    """
+    if not uid or not isinstance(uid, str):
+        return False
+    return True
