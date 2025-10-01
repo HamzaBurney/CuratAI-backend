@@ -1,11 +1,25 @@
-supabase 
-python-dotenv
-pydantic
-numpy
-pandas
-fastapi
-uvicorn[standard]
-requests
-python-multipart
-asyncio
-pydantic[email]
+# Core FastAPI and ASGI
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+pydantic[email]==2.5.0
+
+# Database and Auth
+supabase==2.0.2
+python-dotenv==1.0.0
+
+# File handling and utilities
+python-multipart==0.0.6
+requests==2.31.0
+
+# Data processing (if needed for future features)
+numpy==1.24.3
+pandas==2.0.3
+
+# Development and testing (optional)
+pytest==7.4.3
+pytest-asyncio==0.21.1
+httpx==0.25.2
+
+# Type hints and linting (optional)
+typing-extensions==4.8.0

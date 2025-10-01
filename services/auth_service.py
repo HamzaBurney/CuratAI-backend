@@ -1,151 +1,183 @@
-import logging
-from typing import List, Dict, Optional, Any, Tuple
-from supabase import create_client, Client
-from config import get_config
-from utils.auth_utils import SignupRequest, LoginRequest, validate_password
+"""
+Enhanced authentication service for CuratAI Backend.
+"""
+
+from typing import Tuple, Any, Optional
 from datetime import datetime, timezone
+from models.auth import SignupRequest, LoginRequest, UserResponse
+from services.base import BaseService
+from core.exceptions import (
+    AuthenticationException,
+    ResourceConflictException,
+    DatabaseException
+)
 
-logger = logging.getLogger(__name__)
 
-class AuthService:
-    """Service for Supabase authentication operations"""
-    def __init__(self):
-        """Initialize Supabase client"""
-        try:
-            config = get_config()
-            self.supabase: Client = create_client(
-                config["supabase_url"],
-                config["supabase_service_role_key"]
-            )
-            logger.info("Supabase service initialized successfully")
-        except Exception as e:
-            logger.error(f"Failed to initialize Supabase service: {e}")
-            raise
+class AuthService(BaseService):
+    """Service for handling user authentication operations."""
+    
     async def signup_user(self, request: SignupRequest) -> Tuple[bool, Any]:
+        """
+        Register a new user.
         
-        logger.info(f"Validating password for user: {request.email}")
-        success, message = validate_password(request.password)
-        if not success:
-            return False, message
-        
-        existing_users = self.supabase.table("users").select("username").eq("username", request.username).execute()
-        existing_emails = self.supabase.table("users").select("email").eq("email", request.email).execute()
-        if existing_emails.data:
-            return False, {"error": "email_taken", "message": "Email already registered"}
-        if existing_users.data:
-            return False, {"error": "username_taken", "message": "Username already taken"}
-        
-        
+        Args:
+            request: User signup request data
+            
+        Returns:
+            Tuple of (success, result)
+        """
         try:
-            result = self.supabase.auth.sign_up(
-                {
-                    "email": request.email, 
-                    "password": request.password,
-                    "options": {
-                        "data": {  # store username in user_metadata
-                            "username": request.username
-                        }
+            self.logger.info(f"Processing signup request for email: {request.email}")
+            
+            # Check if email already exists
+            existing_email = self.db.table("users").select("email").eq("email", request.email).execute()
+            if existing_email.data:
+                return False, {"error": "email_taken", "message": "Email already registered"}
+            
+            # Check if username already exists
+            existing_username = self.db.table("users").select("username").eq("username", request.username).execute()
+            if existing_username.data:
+                return False, {"error": "username_taken", "message": "Username already taken"}
+            
+            # Create user account with Supabase Auth
+            auth_result = self.db.auth.sign_up({
+                "email": request.email,
+                "password": request.password,
+                "options": {
+                    "data": {
+                        "username": request.username
                     }
                 }
-            )
-
-            if not result.user:
+            })
+            
+            if not auth_result.user:
                 return False, {"error": "signup_failed", "message": "Failed to create user account"}
-            logger.info(f"User account created successfully: {result}")
-
+            
+            self.logger.info(f"User account created with ID: {auth_result.user.id}")
+            
+            # Store user profile in database
             user_record = {
-                    "id": result.user.id,
-                    "email": request.email,
-                    "username": request.username
-                }
-
-            logger.info(f"Inserting user record into database for user: {request.email}")
-            db_response = self.supabase.table("users").insert(user_record).execute()
-
-            if not db_response:
-                self.supabase.auth.api.delete_user(result.user.id)
-                logger.error(f"Failed to insert user record into database: {db_response.error.message}")
+                "id": auth_result.user.id,
+                "email": request.email,
+                "username": request.username,
+                "is_active": True,
+                "created_at": datetime.now(timezone.utc).isoformat()
+            }
+            
+            db_response = self.db.table("users").insert(user_record).execute()
+            
+            if not db_response.data:
+                # Rollback: delete auth user if database insert fails
+                try:
+                    self.db.auth.api.delete_user(auth_result.user.id)
+                except Exception as rollback_error:
+                    self.logger.error(f"Failed to rollback user creation: {rollback_error}")
+                
                 return False, {"error": "db_insert_failed", "message": "Failed to store user details"}
-
+            
+            user_data = db_response.data[0]
+            
+            self.logger.info(f"User signup completed successfully: {request.email}")
+            
             return True, {
                 "message": "Signup successful. Please check your email for confirmation.",
                 "user": {
-                    "id": result.user.id,
-                    "email": result.user.email,
-                    "username": result.user.user_metadata.get("username")
+                    "id": user_data["id"],
+                    "email": user_data["email"],
+                    "username": user_data["username"],
+                    "is_active": user_data.get("is_active", True),
+                    "created_at": user_data.get("created_at"),
+                    "last_login": None
                 }
             }
-        
+            
         except Exception as e:
-            self.supabase.auth.api.delete_user(result.user.id)
-            logger.error(f"Error during user signup: {e}")
-            return False, {"error": "exception", "message": str(e)}
-        
+            self.logger.error(f"Unexpected error during signup for {request.email}: {e}")
+            return False, {"error": "signup_failed", "message": str(e)}
+    
     async def login_user(self, request: LoginRequest) -> Tuple[bool, Any]:
-        try:
-            result = self.supabase.auth.sign_in_with_password(
-                {
-                    "email": request.email,
-                    "password": request.password
-                }
-            )
+        """
+        Authenticate a user login.
         
-            if not result.user:
+        Args:
+            request: User login request data
+            
+        Returns:
+            Tuple of (success, result)
+        """
+        try:
+            self.logger.info(f"Processing login request for email: {request.email}")
+            
+            # Authenticate with Supabase Auth
+            auth_result = self.db.auth.sign_in_with_password({
+                "email": request.email,
+                "password": request.password
+            })
+            
+            if not auth_result.user:
                 return False, {"error": "invalid_credentials", "message": "Invalid email or password"}
-            if not result.user.confirmed_at:
+            
+            if not auth_result.user.confirmed_at:
                 return False, {"error": "email_not_confirmed", "message": "Email not confirmed. Please check your inbox."}
             
-            user_query = self.supabase.table("users").select("*").eq("id", result.user.id).execute()
+            # Get user profile from database
+            user_query = self.db.table("users").select("*").eq("id", auth_result.user.id).execute()
+            
             if not user_query.data:
                 return False, {"error": "user_not_found", "message": "User profile not found"}
+            
             user_data = user_query.data[0]
-            if user_data.get("is_active") is False:
+            
+            if not user_data.get("is_active", True):
                 return False, {"error": "user_deactivated", "message": "User account is deactivated. Contact support."}
             
-            last_login = self.supabase.table("users") \
-                .update({"last_login": datetime.now(timezone.utc).isoformat()}) \
-                .eq("id", user_data["id"]) \
-                .execute()
+            # Update last login timestamp
+            last_login = self.db.table("users").update({
+                "last_login": datetime.now(timezone.utc).isoformat()
+            }).eq("id", user_data["id"]).execute()
+            
+            self.logger.info(f"User login successful: {request.email}")
             
             return True, {
-            "message": "Login successful",
-            "user": {
-                "id": result.user.id,
-                "email": result.user.email,
-                "created_at": user_data.get("created_at"),
-                "username": user_data.get("username"),
-                "is_active": user_data.get("is_active"),
-                "last_login": last_login.data[0].get("last_login")
-                
-            },
-            "session": result.session.__dict__ if result.session else {},
-            "access_token": result.session.access_token if result.session else "",
-            "refresh_token": result.session.refresh_token if result.session else ""
-        }
+                "message": "Login successful",
+                "user": {
+                    "id": auth_result.user.id,
+                    "email": auth_result.user.email,
+                    "username": user_data.get("username"),
+                    "is_active": user_data.get("is_active", True),
+                    "created_at": user_data.get("created_at"),
+                    "last_login": last_login.data[0].get("last_login") if last_login.data else None
+                },
+                "access_token": auth_result.session.access_token if auth_result.session else "",
+                "refresh_token": auth_result.session.refresh_token if auth_result.session else ""
+            }
             
         except Exception as e:
-            logger.error(f"Error during user login: {e}")
+            self.logger.error(f"Unexpected error during login for {request.email}: {e}")
             return False, {"error": "login_failed", "message": str(e)}
     
     async def get_user_uid(self) -> Optional[str]:
         """
-        Fetch the signed-in user's UID from Supabase
-
+        Get the UID of the currently authenticated user.
+        
         Returns:
-            Optional[str]: UID of the signed-in user or None if not found
+            User UID if found, None otherwise
         """
         try:
-            logger.info("Fetching UID for the signed-in user")
-            user_response = self.supabase.auth.get_user()
-
+            self.logger.info("Fetching authenticated user UID")
+            
+            user_response = self.db.auth.get_user()
+            
             if not user_response or not user_response.user or not user_response.user.id:
-                logger.warning("No UID found for the signed-in user")
+                self.logger.warning("No authenticated user found")
                 return None
-
-            logger.info(f"UID retrieved: {user_response.user.id}")
-            return user_response.user.id
-
+            
+            uid = user_response.user.id
+            self.logger.info(f"Retrieved UID: {uid}")
+            
+            return uid
+            
         except Exception as e:
-            logger.error(f"Error fetching UID: {str(e)}")
+            self.logger.error(f"Error fetching user UID: {e}")
             return None
 
