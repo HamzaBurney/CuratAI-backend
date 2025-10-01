@@ -1,26 +1,20 @@
-import logging
-from supabase import create_client, Client
-from config import get_config
-from utils.project_utils import validate_project_name
-from typing import Tuple, Any
+"""
+Enhanced project management service for CuratAI Backend.
+"""
 
-logger = logging.getLogger(__name__)
+from typing import Tuple, Any, List
+from datetime import datetime, timezone
+from models.project import ProjectData
+from services.base import BaseService
+from core.exceptions import (
+    ResourceNotFoundException,
+    ResourceConflictException,
+    DatabaseException
+)
 
-class ProjectService:
-    def __init__(self):
-        """
-        Initialize Supabase client
-        """
-        try:
-            config = get_config()
-            self.supabase: Client = create_client(
-                config["supabase_url"],
-                config["supabase_service_role_key"]
-            )
-            logger.info("Supabase service initialized successfully for ProjectService")
-        except Exception as e:
-            logger.error(f"Failed to initialize Supabase service: {e}")
-            raise
+
+class ProjectService(BaseService):
+    """Service for handling project management operations."""
 
     def is_project_name_unique(self, project_name: str, user_id: str) -> bool:
         """
@@ -34,12 +28,12 @@ class ProjectService:
             bool: True if unique, False otherwise.
         """
         try:
-            logger.info(f"Checking uniqueness of project name: {project_name} for user: {user_id}")
-            response = self.supabase.table("projects").select("id").eq("project_name", project_name).eq("user_id", user_id).execute()
+            self.logger.info(f"Checking uniqueness of project name: {project_name} for user: {user_id}")
+            response = self.db.table("projects").select("id").eq("project_name", project_name).eq("user_id", user_id).execute()
             return len(response.data) == 0
         except Exception as e:
-            logger.error(f"Error checking project name uniqueness: {str(e)}")
-            raise
+            self.logger.error(f"Error checking project name uniqueness: {str(e)}")
+            raise DatabaseException(f"Failed to check project name uniqueness: {str(e)}")
 
     def create_project(self, project_name: str, user_id: str) -> str:
         """
@@ -53,58 +47,70 @@ class ProjectService:
             str: ID of the newly created project.
         """
         try:
-            logger.info(f"Creating project: {project_name} for user: {user_id}")
+            self.logger.info(f"Creating project: {project_name} for user: {user_id}")
 
-            # Validate project name
-            if not validate_project_name(project_name):
-                logger.warning(f"Invalid project name: {project_name}")
-                raise ValueError("Invalid project name. Only alphanumeric characters, dashes (-), and underscores (_) are allowed.")
+            # Check if project name already exists for this user
+            if not self.is_project_name_unique(project_name, user_id):
+                raise ResourceConflictException(
+                    f"Project name '{project_name}' already exists for this user"
+                )
 
-            response = self.supabase.table("projects").insert({
+            # Create project record
+            project_data = {
                 "user_id": user_id,
-                "project_name": project_name,
-                "image_count": 0
-            }).execute()
+                "project_name": project_name
+            }
+
+            response = self.db.table("projects").insert(project_data).execute()
 
             if not response.data:
-                raise Exception("Failed to create project")
+                raise DatabaseException("Failed to create project")
 
             project_id = response.data[0]["id"]
-            logger.info(f"Project created successfully with ID: {project_id}")
+            self.logger.info(f"Project created successfully with ID: {project_id}")
             return project_id
-        except Exception as e:
-            logger.error(f"Error creating project: {str(e)}")
+            
+        except (ResourceConflictException, DatabaseException):
             raise
+        except Exception as e:
+            self.logger.error(f"Error creating project: {str(e)}")
+            raise DatabaseException(f"Failed to create project: {str(e)}")
 
-    def delete_project(self, project_id: str) -> Tuple[bool, Any]:
+    def delete_project(self, project_id: str) -> Tuple[bool, dict]:
         """
         Delete a project from the projects table.
 
         Args:
-            project_name (str): Name of the project to delete.
-            user_id (str): ID of the user deleting the project.
+            project_id (str): ID of the project to delete.
 
-        Raises:
-            Exception: If the project could not be deleted.
+        Returns:
+            Tuple of (success, result)
         """
         try:
-            logger.info(f"Deleting project with ID: {project_id}")
+            self.logger.info(f"Deleting project with ID: {project_id}")
             
-            response = self.supabase.table("projects").delete().eq("id", project_id).execute()
+            # First check if project exists
+            project_check = self.db.table("projects").select("id").eq("id", project_id).execute()
+            if not project_check.data:
+                raise ResourceNotFoundException("Project", project_id)
+            
+            # Delete the project
+            response = self.db.table("projects").delete().eq("id", project_id).execute()
 
             if not response:
-                logger.error(f"Failed to delete project with ID: {project_id}")
-                return False, {"message": "Project not found or already deleted", "project_id": project_id}
+                raise DatabaseException("Failed to delete project")
 
-            logger.info(f"Project deleted successfully: {project_id}")
+            self.logger.info(f"Project deleted successfully: {project_id}")
             
             return True, {"message": "Project deleted successfully", "project_id": project_id}
-        
+            
+        except (ResourceNotFoundException, DatabaseException):
+            raise
         except Exception as e:
-            logger.error(f"Error deleting project: {str(e)}")
-            return False, {"error": "deletion_failed", "message": str(e), "project_id": project_id}
+            self.logger.error(f"Error deleting project: {str(e)}")
+            raise DatabaseException(f"Failed to delete project: {str(e)}")
 
-    def get_projects(self, user_id: str) -> list[dict]:
+    def get_projects(self, user_id: str) -> List[dict]:
         """
         Retrieve all projects for a given user.
 
@@ -112,19 +118,49 @@ class ProjectService:
             user_id (str): ID of the user whose projects are to be retrieved.
 
         Returns:
-            list[dict]: List of projects with their names and IDs.
+            List of projects with their details.
         """
         try:
-            logger.info(f"Fetching projects for user: {user_id}")
+            self.logger.info(f"Fetching projects for user: {user_id}")
 
-            response = self.supabase.table("projects").select("id, project_name").eq("user_id", user_id).execute()
+            response = self.db.table("projects").select(
+                "id, project_name, image_count, created_at"
+            ).eq("user_id", user_id).order("created_at", desc=True).execute()
 
             if not response.data:
-                logger.info(f"No projects found for user: {user_id}")
-                return []
+                self.logger.info(f"No projects found for user: {user_id}")
+                raise ResourceNotFoundException("Projects", f"user_id: {user_id}")
 
-            logger.info(f"Projects retrieved successfully for user: {user_id}")
-            return response.data
+            projects = []
+            for project_data in response.data:
+                projects.append({
+                    "id": project_data["id"],
+                    "project_name": project_data["project_name"],
+                    "image_count": project_data.get("image_count", 0),
+                    "created_at": project_data.get("created_at"),
+                    "updated_at": project_data.get("updated_at")
+                })
+
+            self.logger.info(f"Retrieved {len(projects)} projects for user: {user_id}")
+            return projects
+            
         except Exception as e:
-            logger.error(f"Error fetching projects: {str(e)}")
-            raise
+            self.logger.error(f"Error fetching projects: {str(e)}")
+            raise DatabaseException(f"Failed to fetch projects: {str(e)}")
+    
+    def validate_project_exists(self, project_id: str) -> bool:
+        """
+        Validate that a project exists.
+        
+        Args:
+            project_id: Project ID to validate
+            
+        Returns:
+            True if project exists, False otherwise
+        """
+        try:
+            response = self.db.table("projects").select("id").eq("id", project_id).execute()
+            return len(response.data) > 0
+        except Exception as e:
+            self.logger.error(f"Error validating project existence: {e}")
+            return False
