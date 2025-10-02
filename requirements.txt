@@ -1,25 +1,25 @@
 # Core FastAPI and ASGI
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
-pydantic==2.5.0
-pydantic[email]==2.5.0
+fastapi
+uvicorn[standard]
+pydantic
+pydantic[email]
 
 # Database and Auth
-supabase==2.0.2
-python-dotenv==1.0.0
+supabase
+python-dotenv
 
 # File handling and utilities
-python-multipart==0.0.6
-requests==2.31.0
+python-multipart
+requests
 
 # Data processing (if needed for future features)
-numpy==1.24.3
-pandas==2.0.3
+numpy
+pandas
 
 # Development and testing (optional)
-pytest==7.4.3
-pytest-asyncio==0.21.1
-httpx==0.25.2
+pytest
+pytest-asyncio
+httpx
 
 # Type hints and linting (optional)
-typing-extensions==4.8.0
+typing-extensions
