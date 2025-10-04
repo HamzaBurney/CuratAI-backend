@@ -3,7 +3,7 @@ Enhanced project management API routes for CuratAI Backend.
 """
 
 from fastapi import APIRouter, HTTPException, status, Depends, Query
-from models.project import (
+from models.project_model import (
     ProjectCreateRequest,
     ProjectDeleteRequest,
     ProjectCreateResponse,

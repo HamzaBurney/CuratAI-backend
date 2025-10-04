@@ -4,7 +4,7 @@ Enhanced authentication service for CuratAI Backend.
 
 from typing import Tuple, Any, Optional
 from datetime import datetime, timezone
-from models.auth import SignupRequest, LoginRequest, UserResponse
+from models.auth_model import SignupRequest, LoginRequest, UserResponse
 from services.base import BaseService
 from core.exceptions import (
     AuthenticationException,

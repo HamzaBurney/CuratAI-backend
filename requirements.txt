@@ -16,6 +16,9 @@ requests
 numpy
 pandas
 
+deepface
+opencv-python
+
 # Development and testing (optional)
 pytest
 pytest-asyncio

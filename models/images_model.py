@@ -9,7 +9,8 @@ class ZipUploadResponse(BaseModel):
     """Response model for zip file upload."""
     message: str
     project_id: str
-    uploaded_images: List[str] = []
+    # uploaded_images: List[str] = []
+    images_data: Optional[dict] = None
 
 class ErrorResponse(BaseModel):
     """Standard error response model."""

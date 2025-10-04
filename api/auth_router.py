@@ -3,7 +3,7 @@ Enhanced authentication API routes for CuratAI Backend.
 """
 
 from fastapi import APIRouter, HTTPException, status, Depends
-from models.auth import (
+from models.auth_model import (
     SignupRequest, 
     LoginRequest, 
     SignupResponse, 

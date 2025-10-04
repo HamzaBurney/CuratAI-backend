@@ -4,7 +4,7 @@ Enhanced project management service for CuratAI Backend.
 
 from typing import Tuple, Any, List
 from datetime import datetime, timezone
-from models.project import ProjectData
+from models.project_model import ProjectData
 from services.base import BaseService
 from core.exceptions import (
     ResourceNotFoundException,

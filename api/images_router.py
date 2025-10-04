@@ -7,7 +7,7 @@ import io
 from typing import List
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, status, Depends
 from fastapi.responses import JSONResponse
-from models.images import (
+from models.images_model import (
     ZipUploadResponse,
     ErrorResponse
 )
@@ -20,6 +20,7 @@ from core.exceptions import (
     FileUploadException,
     StorageException
 )
+import base64
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/images", tags=["image upload"])
@@ -83,6 +84,7 @@ async def upload_zip_images(
         
         zip_bytes = io.BytesIO(contents)
         uploaded_images = []
+        images_data = {}
         
         try:
             with zipfile.ZipFile(zip_bytes, 'r') as zip_ref:
@@ -124,6 +126,10 @@ async def upload_zip_images(
                                     "image_url": result["image_url"],
                                     "project_id": project_id,
                                 })
+                                
+                                img_b64 = base64.b64encode(img_bytes).decode("utf-8")
+                                
+                                images_data[result["image_url"]] = img_b64, file_name
                             else:
                                 logger.warning(f"Failed to upload {file_name}: {result.get('message', 'Unknown error')}")
                     
@@ -152,8 +158,16 @@ async def upload_zip_images(
         response = {
             "message": f"Successfully uploaded images",
             "project_id": project_id,
-            "uploaded_images": [img["image_url"] for img in uploaded_images]
+            # "uploaded_images": [img["image_url"] for img in uploaded_images]
+            "images_data": images_data
         }
+        
+        # save images_data to a json file for testing
+        logger.info(f"Uploaded {len(uploaded_images)} images to project {project_id}")
+        # with open(f"uploaded_images.json", "w") as f:
+        #     import json
+        #     json.dump(images_data, f)
+        
         
         return response
         

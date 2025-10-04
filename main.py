@@ -21,9 +21,10 @@ from core.middleware import (
 from core.exceptions import CuratAIException
 
 # API routes
-from api.auth import router as auth_router
-from api.projects import router as projects_router
-from api.images import router as images_router
+from api.auth_router import router as auth_router
+from api.projects_router import router as projects_router
+from api.images_router import router as images_router
+from api.faces_recognition_router import router as faces_recognition_router
 
 # Initialize logger
 logger = get_logger(__name__)
@@ -103,6 +104,7 @@ def create_app() -> FastAPI:
     app.include_router(auth_router)
     app.include_router(projects_router)
     app.include_router(images_router)
+    app.include_router(faces_recognition_router)
     
     # Root endpoint
     @app.get("/", tags=["root"])
