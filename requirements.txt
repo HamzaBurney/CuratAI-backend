@@ -15,6 +15,7 @@ requests
 # Data processing (if needed for future features)
 numpy
 pandas
+tf-keras
 
 deepface
 opencv-python

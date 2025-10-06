@@ -144,7 +144,8 @@ class FaceRecognitionService(BaseService):
                     records.append({
                         "image_id": image_id,
                         "cropped_image_url": cropped_image_url,
-                        "embedding": embeddings[0]["embedding"]
+                        "embedding": embeddings[0]["embedding"],
+                        "project_id": project_id
                     })
             return True, records
         except Exception as e:
