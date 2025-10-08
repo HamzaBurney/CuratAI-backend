@@ -27,3 +27,9 @@ httpx
 
 # Type hints and linting (optional)
 typing-extensions
+
+# LangChain and related libraries
+langchain
+langchain-core
+langchain-openai
+langgraph

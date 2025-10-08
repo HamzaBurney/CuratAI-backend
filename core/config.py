@@ -62,6 +62,8 @@ class Settings:
         valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
         if self.log_level not in valid_levels:
             self.log_level = "INFO"
+        
+        self.openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
 
 
 @lru_cache()
@@ -75,7 +77,8 @@ def validate_required_settings(settings: Settings) -> None:
     required_fields = [
         ("supabase_url", "SUPABASE_URL"),
         ("supabase_service_role_key", "SUPABASE_SERVICE_ROLE_KEY"),
-        ("supabase_jwt_secret", "SUPABASE_JWT_SECRET")
+        ("supabase_jwt_secret", "SUPABASE_JWT_SECRET"),
+        ("openai_api_key", "OPENAI_API_KEY")
     ]
     
     missing_fields = []
@@ -101,4 +104,5 @@ def get_database_config() -> Dict[str, Any]:
         "anon_key": settings.supabase_anon_key,
         "service_role_key": settings.supabase_service_role_key,
         "jwt_secret": settings.supabase_jwt_secret,
+        "openai_api_key": settings.openai_api_key
     }

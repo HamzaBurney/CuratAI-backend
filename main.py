@@ -25,6 +25,8 @@ from api.auth_router import router as auth_router
 from api.projects_router import router as projects_router
 from api.images_router import router as images_router
 from api.faces_recognition_router import router as faces_recognition_router
+from api.image_searching_router import router as image_searching_router
+from api.albums_router import router as albums_router
 
 # Initialize logger
 logger = get_logger(__name__)
@@ -105,6 +107,8 @@ def create_app() -> FastAPI:
     app.include_router(projects_router)
     app.include_router(images_router)
     app.include_router(faces_recognition_router)
+    app.include_router(image_searching_router)
+    app.include_router(albums_router)
     
     # Root endpoint
     @app.get("/", tags=["root"])
