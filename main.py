@@ -4,9 +4,10 @@ Enhanced with proper configuration, logging, middleware, and error handling.
 """
 
 import uvicorn
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.security import HTTPBearer
 from contextlib import asynccontextmanager
 
 # Core imports
@@ -16,7 +17,8 @@ from core.database import db_manager
 from core.middleware import (
     RequestLoggingMiddleware,
     ErrorHandlingMiddleware,
-    SecurityHeadersMiddleware
+    SecurityHeadersMiddleware,
+    AuthenticationMiddleware
 )
 from core.exceptions import CuratAIException
 
@@ -30,7 +32,6 @@ from api.albums_router import router as albums_router
 
 # Initialize logger
 logger = get_logger(__name__)
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -77,7 +78,7 @@ def create_app() -> FastAPI:
     # Setup logging
     setup_logging()
     
-    # Create FastAPI app
+    # Create FastAPI app with Bearer token authentication for Swagger
     app = FastAPI(
         title=settings.app_name,
         description="AI-powered image curation backend with enhanced architecture",
@@ -85,10 +86,54 @@ def create_app() -> FastAPI:
         docs_url="/docs" if settings.debug else None,
         redoc_url="/redoc" if settings.debug else None,
         lifespan=lifespan,
-        debug=settings.debug
+        debug=settings.debug,
+        swagger_ui_parameters={
+            "persistAuthorization": True,  # Persist authorization after page reload
+        }
     )
     
+    # Configure Swagger UI to support Bearer token authentication
+    def custom_openapi():
+        if app.openapi_schema:
+            return app.openapi_schema
+        
+        from fastapi.openapi.utils import get_openapi
+        
+        openapi_schema = get_openapi(
+            title=app.title,
+            version=app.version,
+            description=app.description,
+            routes=app.routes,
+        )
+        
+        # Add security scheme for Bearer token
+        openapi_schema["components"]["securitySchemes"] = {
+            "BearerAuth": {
+                "type": "http",
+                "scheme": "bearer",
+                "bearerFormat": "JWT",
+                "description": "Enter your JWT token obtained from the /auth/login endpoint"
+            }
+        }
+        
+        # Apply security globally to all endpoints except public ones
+        for path, path_item in openapi_schema["paths"].items():
+            # Skip security for public endpoints
+            if path in ["/", "/health", "/auth/signup", "/auth/login"]:
+                continue
+            
+            # Add security requirement to all operations
+            for operation in path_item.values():
+                if isinstance(operation, dict) and "security" not in operation:
+                    operation["security"] = [{"BearerAuth": []}]
+        
+        app.openapi_schema = openapi_schema
+        return app.openapi_schema
+    
+    app.openapi = custom_openapi
+    
     # Add middleware (order matters!)
+    app.add_middleware(AuthenticationMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(ErrorHandlingMiddleware)
     app.add_middleware(RequestLoggingMiddleware)

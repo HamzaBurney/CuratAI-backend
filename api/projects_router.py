@@ -2,7 +2,7 @@
 Enhanced project management API routes for CuratAI Backend.
 """
 
-from fastapi import APIRouter, HTTPException, status, Depends, Query
+from fastapi import APIRouter, HTTPException, status, Depends
 from models.project_model import (
     ProjectCreateRequest,
     ProjectDeleteRequest,
@@ -13,6 +13,7 @@ from models.project_model import (
 )
 from services.project_service import ProjectService
 from core.logging import get_logger
+from core.dependencies import get_current_user, get_current_user_id
 from core.exceptions import (
     ResourceNotFoundException,
     ResourceConflictException,
@@ -33,26 +34,30 @@ def get_project_service() -> ProjectService:
     response_model=ProjectCreateResponse,
     responses={
         400: {"model": ErrorResponse, "description": "Validation error"},
+        401: {"model": ErrorResponse, "description": "Unauthorized - Invalid or missing token"},
         409: {"model": ErrorResponse, "description": "Project name already exists"},
         500: {"model": ErrorResponse, "description": "Internal server error"}
     },
     summary="Create Project",
-    description="Create a new project for the specified user."
+    description="Create a new project for the authenticated user."
 )
 async def create_project(
     request: ProjectCreateRequest,
+    user_id: str = Depends(get_current_user_id),
     project_service: ProjectService = Depends(get_project_service)
 ):
     """
     Create a new project.
     
     - **project_name**: Name of the project (1-100 chars, letters, numbers, spaces, hyphens, underscores)
-    - **user_id**: ID of the user creating the project
+    
+    Note: user_id is automatically extracted from the authentication token.
     """
     try:
-        logger.info(f"Project creation request: {request.project_name} for user: {request.user_id}")
+        logger.info(f"Project creation request: {request.project_name} for user: {user_id}")
         
-        project_id = project_service.create_project(request.project_name, request.user_id)
+        # Use the authenticated user_id from the token
+        project_id = project_service.create_project(request.project_name, user_id)
         
         response = {
             "message": "Project created successfully",
@@ -86,6 +91,7 @@ async def create_project(
     "/{project_id}",
     response_model=ProjectDeleteResponse,
     responses={
+        401: {"model": ErrorResponse, "description": "Unauthorized - Invalid or missing token"},
         404: {"model": ErrorResponse, "description": "Project not found"},
         500: {"model": ErrorResponse, "description": "Internal server error"}
     },
@@ -94,6 +100,7 @@ async def create_project(
 )
 async def delete_project(
     project_id: str,
+    user_id: str = Depends(get_current_user_id),
     project_service: ProjectService = Depends(get_project_service)
 ):
     """
@@ -140,19 +147,20 @@ async def delete_project(
     "/",
     response_model=ProjectListResponse,
     responses={
+        401: {"model": ErrorResponse, "description": "Unauthorized - Invalid or missing token"},
         500: {"model": ErrorResponse, "description": "Internal server error"}
     },
     summary="List User Projects",
-    description="Retrieve all projects for a specific user."
+    description="Retrieve all projects for the authenticated user."
 )
 async def list_projects(
-    user_id: str = Query(..., description="ID of the user whose projects to retrieve"),
+    user_id: str = Depends(get_current_user_id),
     project_service: ProjectService = Depends(get_project_service)
 ):
     """
-    Get all projects for a user.
+    Get all projects for the authenticated user.
     
-    - **user_id**: ID of the user whose projects to retrieve
+    Note: user_id is automatically extracted from the authentication token.
     """
     try:
         logger.info(f"Project list request for user: {user_id}")
@@ -182,6 +190,7 @@ async def list_projects(
     "/{project_id}/validate",
     responses={
         200: {"description": "Project exists"},
+        401: {"model": ErrorResponse, "description": "Unauthorized - Invalid or missing token"},
         404: {"model": ErrorResponse, "description": "Project not found"},
         500: {"model": ErrorResponse, "description": "Internal server error"}
     },
@@ -190,6 +199,7 @@ async def list_projects(
 )
 async def validate_project(
     project_id: str,
+    user_id: str = Depends(get_current_user_id),
     project_service: ProjectService = Depends(get_project_service)
 ):
     """

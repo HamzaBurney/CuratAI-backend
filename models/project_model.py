@@ -10,7 +10,6 @@ import re
 class ProjectCreateRequest(BaseModel):
     """Request model for creating a project."""
     project_name: str
-    user_id: str
     
     @field_validator('project_name')
     @classmethod
@@ -29,13 +28,6 @@ class ProjectCreateRequest(BaseModel):
             raise ValueError('Project name can only contain letters, numbers, spaces, hyphens, and underscores')
         
         return v
-    
-    @field_validator('user_id')
-    @classmethod
-    def validate_user_id(cls, v):
-        if not v or not v.strip():
-            raise ValueError('User ID cannot be empty')
-        return v.strip()
 
 
 class ProjectDeleteRequest(BaseModel):
@@ -51,15 +43,8 @@ class ProjectDeleteRequest(BaseModel):
 
 
 class ProjectViewRequest(BaseModel):
-    """Request model for viewing projects."""
-    user_id: str
-    
-    @field_validator('user_id')
-    @classmethod
-    def validate_user_id(cls, v):
-        if not v or not v.strip():
-            raise ValueError('User ID cannot be empty')
-        return v.strip()
+    """Request model for viewing projects (deprecated - user_id now comes from auth token)."""
+    pass
 
 
 class ProjectData(BaseModel):

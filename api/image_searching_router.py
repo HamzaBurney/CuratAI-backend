@@ -11,6 +11,7 @@ from services.images_upload_service import ImagesUploadService
 from services.project_service import ProjectService
 from services.face_recognition_service import FaceRecognitionService
 from core.logging import get_logger
+from core.dependencies import get_current_user_id
 from core.exceptions import (
     ValidationException,
     ResourceNotFoundException,
@@ -37,10 +38,14 @@ def get_image_searching_graph() -> ImageSearchingGraph:
 @router.post("/",
     summary="Image Searching Endpoint",
     description="Search images based on uploaded images or text query",
+    responses={
+        401: {"model": ErrorResponse, "description": "Unauthorized - Invalid or missing token"}
+    }
 )
 async def image_searching(
     project_id: str = Form(..., description="Project ID associated with the images"),
     search_query: str = Form(..., description="Text query for image searching"),
+    user_id: str = Depends(get_current_user_id),
     image_searching_graph: ImageSearchingGraph = Depends(get_image_searching_graph)
 ):
     

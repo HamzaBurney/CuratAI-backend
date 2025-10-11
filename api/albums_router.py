@@ -12,6 +12,7 @@ from services.project_service import ProjectService
 from services.face_recognition_service import FaceRecognitionService
 from services.albums_services import AlbumsService
 from core.logging import get_logger
+from core.dependencies import get_current_user_id
 from core.exceptions import (
     ValidationException,
     ResourceNotFoundException,
@@ -37,11 +38,15 @@ def albums_service() -> AlbumsService:
 @router.post("/generate-albums",
     summary="Generate Albums Endpoint",
     description="Get the image data from the uploaded images, and generate albums for a specific person",
+    responses={
+        401: {"model": ErrorResponse, "description": "Unauthorized - Invalid or missing token"}
+    }
 )
 async def generate_albums(
     person_name: str = Form(..., description="Name of the person to generate albums for"),
     image: UploadFile = File(..., description="Image of the person to process"),
     project_id: str = Form(..., description="Project ID associated with the images"),
+    user_id: str = Depends(get_current_user_id),
     albums_service: AlbumsService = Depends(albums_service)
 ):
     
@@ -96,9 +101,14 @@ async def generate_albums(
             detail=str(ve)
         )
         
-@router.get("/get-albums-list")
+@router.get("/get-albums-list",
+    responses={
+        401: {"model": ErrorResponse, "description": "Unauthorized - Invalid or missing token"}
+    }
+)
 async def get_albums_list(
     project_id: str,
+    user_id: str = Depends(get_current_user_id),
     albums_service: AlbumsService = Depends(albums_service)
 ):
     
@@ -137,9 +147,14 @@ async def get_albums_list(
             detail=str(ve)
         )
         
-@router.get("/get-album-images")
+@router.get("/get-album-images",
+    responses={
+        401: {"model": ErrorResponse, "description": "Unauthorized - Invalid or missing token"}
+    }
+)
 async def get_album_images(
     album_id: str,
+    user_id: str = Depends(get_current_user_id),
     albums_service: AlbumsService = Depends(albums_service)
 ):
     
@@ -179,9 +194,14 @@ async def get_album_images(
             detail=str(ve)
         )
         
-@router.delete("/delete-album")
+@router.delete("/delete-album",
+    responses={
+        401: {"model": ErrorResponse, "description": "Unauthorized - Invalid or missing token"}
+    }
+)
 async def delete_album(
     album_id: str = Body(..., embed=True, description="ID of the album to delete"),
+    user_id: str = Depends(get_current_user_id),
     albums_service: AlbumsService = Depends(albums_service)
 ):
     

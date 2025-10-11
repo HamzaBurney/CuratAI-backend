@@ -42,7 +42,7 @@ class Settings:
         self.supabase_url: Optional[str] = os.getenv("SUPABASE_URL")
         self.supabase_anon_key: Optional[str] = os.getenv("SUPABASE_ANON_KEY")
         self.supabase_service_role_key: Optional[str] = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-        self.supabase_jwt_secret: Optional[str] = os.getenv("SUPABASE_JWT_SECRET")
+        self.jwks_url: Optional[str] = os.getenv("JWKS_URL")
         
         # Storage settings
         self.storage_bucket: str = os.getenv("STORAGE_BUCKET", "user-images")
@@ -77,7 +77,7 @@ def validate_required_settings(settings: Settings) -> None:
     required_fields = [
         ("supabase_url", "SUPABASE_URL"),
         ("supabase_service_role_key", "SUPABASE_SERVICE_ROLE_KEY"),
-        ("supabase_jwt_secret", "SUPABASE_JWT_SECRET"),
+        ("jwks_url", "JWKS_URL"),
         ("openai_api_key", "OPENAI_API_KEY")
     ]
     
@@ -103,6 +103,6 @@ def get_database_config() -> Dict[str, Any]:
         "url": settings.supabase_url,
         "anon_key": settings.supabase_anon_key,
         "service_role_key": settings.supabase_service_role_key,
-        "jwt_secret": settings.supabase_jwt_secret,
+        "jwks_url": settings.jwks_url,
         "openai_api_key": settings.openai_api_key
     }

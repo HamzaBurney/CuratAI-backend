@@ -11,6 +11,7 @@ from services.images_upload_service import ImagesUploadService
 from services.project_service import ProjectService
 from services.face_recognition_service import FaceRecognitionService
 from core.logging import get_logger
+from core.dependencies import get_current_user_id
 from core.exceptions import (
     ValidationException,
     ResourceNotFoundException,
@@ -29,9 +30,13 @@ def get_face_recognition_service() -> FaceRecognitionService:
 @router.post("/",
     summary="Face Recognition Endpoint",
     description="Get the image data from the uploaded zip file for face recognition",
+    responses={
+        401: {"model": ErrorResponse, "description": "Unauthorized - Invalid or missing token"}
+    }
 )
 async def face_recognition(
     request: FaceRecognitionRequest,
+    user_id: str = Depends(get_current_user_id),
     face_recognition_service: FaceRecognitionService = Depends(get_face_recognition_service)
 ):
     

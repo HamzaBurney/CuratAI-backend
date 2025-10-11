@@ -14,6 +14,7 @@ from models.images_model import (
 from services.images_upload_service import ImagesUploadService
 from services.project_service import ProjectService
 from core.logging import get_logger
+from core.dependencies import get_current_user_id
 from core.exceptions import (
     ValidationException,
     ResourceNotFoundException,
@@ -41,6 +42,7 @@ def get_project_service() -> ProjectService:
     response_model=ZipUploadResponse,
     responses={
         400: {"model": ErrorResponse, "description": "Invalid file or validation error"},
+        401: {"model": ErrorResponse, "description": "Unauthorized - Invalid or missing token"},
         404: {"model": ErrorResponse, "description": "Project not found"},
         413: {"model": ErrorResponse, "description": "File too large"},
         500: {"model": ErrorResponse, "description": "Internal server error"}
@@ -51,6 +53,7 @@ def get_project_service() -> ProjectService:
 async def upload_zip_images(
     project_id: str = Form(..., description="ID of the project to upload images to"),
     file: UploadFile = File(..., description="ZIP file containing images"),
+    user_id: str = Depends(get_current_user_id),
     images_service: ImagesUploadService = Depends(get_images_service),
     project_service: ProjectService = Depends(get_project_service)
 ):
@@ -189,6 +192,7 @@ async def upload_zip_images(
 @router.get(
     "/{project_id}",
     responses={
+        401: {"model": ErrorResponse, "description": "Unauthorized - Invalid or missing token"},
         404: {"model": ErrorResponse, "description": "Project not found"},
         500: {"model": ErrorResponse, "description": "Internal server error"}
     },
@@ -197,6 +201,7 @@ async def upload_zip_images(
 )
 async def list_project_images(
     project_id: str,
+    user_id: str = Depends(get_current_user_id),
     images_service: ImagesUploadService = Depends(get_images_service),
     project_service: ProjectService = Depends(get_project_service)
 ):
@@ -240,6 +245,7 @@ async def list_project_images(
 @router.delete(
     "/{project_id}/{image_id}",
     responses={
+        401: {"model": ErrorResponse, "description": "Unauthorized - Invalid or missing token"},
         404: {"model": ErrorResponse, "description": "Project or image not found"},
         500: {"model": ErrorResponse, "description": "Internal server error"}
     },
@@ -249,6 +255,7 @@ async def list_project_images(
 async def delete_project_image(
     project_id: str,
     image_id: str,
+    user_id: str = Depends(get_current_user_id),
     images_service: ImagesUploadService = Depends(get_images_service),
     project_service: ProjectService = Depends(get_project_service)
 ):
