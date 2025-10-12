@@ -16,6 +16,8 @@ requests
 numpy
 pandas
 tf-keras
+faster-whisper 
+torch
 
 deepface
 opencv-python

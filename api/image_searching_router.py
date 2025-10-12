@@ -22,6 +22,20 @@ from core.exceptions import (
 )
 from models.face_recogntion_model import FaceRecognitionRequest
 from graph.image_searching_graph import ImageSearchingGraph
+from faster_whisper import WhisperModel
+import torch
+import io
+import tempfile
+import os
+from pathlib import Path
+
+# Automatically detect GPU
+device = "cuda" if torch.cuda.is_available() else "cpu"
+compute_type = "float16" if device == "cuda" else "int8"  # efficient on CPU
+
+print(f"Loading Whisper model on {device} ({compute_type})")
+
+model = WhisperModel("base", device=device, compute_type=compute_type)
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/image_searching", tags=["Image Searching"])
@@ -98,4 +112,59 @@ async def image_searching(
             detail=str(ve)
         )
     
+ 
+@router.post(
+    "/voice-input",
+    summary="Voice Input Endpoint",
+    description="Process voice input for image searching",
+)
+async def voice_input(
+    audio_file: UploadFile = File(..., description="Audio file containing the voice input"),
+    user_id: str = Depends(get_current_user_id),
+):
+    """
+    Accepts an uploaded audio file (e.g. .wav or .webm), saves it temporarily,
+    transcribes using Whisper, and returns the text.
+    """
     
+    if not audio_file:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="audio_file must be provided",
+        )
+
+    try:
+        # Save uploaded file temporarily
+        suffix = Path(audio_file.filename).suffix or ".wav"
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            contents = await audio_file.read()
+            tmp.write(contents)
+            tmp_path = tmp.name
+
+        # Run transcription
+        result = model.transcribe(tmp_path)
+        # For openai/whisper -> result["text"]
+        # For faster-whisper -> result is tuple (segments, info)
+        if isinstance(result, tuple):
+            segments, _ = result
+            text = " ".join([seg.text for seg in segments]).strip()
+        else:
+            text = result.get("text", "").strip()
+        
+        logger.info(f"Transcription result: {text}")
+        return {"transcription": text}
+
+    except Exception as e:
+        logger.exception(f"Error during voice input processing: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to process voice input: {str(e)}",
+        )
+
+    finally:
+        # Clean up the temp file
+        try:
+            if tmp_path:
+                os.remove(tmp_path)
+        except Exception:
+            pass
