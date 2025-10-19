@@ -6,7 +6,6 @@ from deepface import DeepFace
 from typing import Dict, List, Optional, Any, Tuple
 import numpy as np
 import cv2
-from sklearn.preprocessing import normalize
 import json
 import traceback
 

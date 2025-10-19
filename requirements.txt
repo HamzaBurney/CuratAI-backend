@@ -18,6 +18,7 @@ pandas
 tf-keras
 faster-whisper 
 torch
+torchvision
 
 deepface
 opencv-python

@@ -15,7 +15,7 @@ import numpy as np
 import base64
 
 class FaceRecognitionService(BaseService):
-    """Service for handling image upload operations."""
+    """Service for handling face recognition operations."""
     
     def __init__(self):
         """Initialize the images upload service."""
