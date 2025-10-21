@@ -19,6 +19,7 @@ tf-keras
 faster-whisper 
 torch
 torchvision
+scikit-learn
 
 deepface
 opencv-python
