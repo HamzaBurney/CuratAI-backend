@@ -98,3 +98,6 @@ langgraph.json
 # Backup files
 *.bak
 *.orig
+
+# Model files
+posterv2_complete.pt
