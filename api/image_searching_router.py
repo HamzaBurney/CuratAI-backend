@@ -102,6 +102,7 @@ async def image_searching(
             status_code=status.HTTP_200_OK,
             content={
                 "message": "Image searching completed successfully",
+                "result": result['face_detection_results_combined']
                 # "data": result
             }
         )
