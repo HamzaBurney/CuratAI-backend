@@ -68,8 +68,7 @@ class ImageSearchingGraph:
                         search_result = {
                             "people": json_data.get("people", []),
                             "emotions": json_data.get("emotions", []),
-                            "objects": json_data.get("objects", []),
-                            "scenes": json_data.get("scenes", [])
+                            "scene": json_data.get("scene", "")
                         }
                         errors = json_data.get("errors", [])
                         state["json_query_extraction"] = search_result
@@ -96,8 +95,12 @@ class ImageSearchingGraph:
         try:
 
             # get the people name from json extraction
-            
+            logger.info(f"[_searching_based_on_people_node] Starting search based on people names.")
             people_names = state.get("json_query_extraction", {}).get("people", [])
+            if not people_names:
+                logger.info("[_searching_based_on_people_node] No people names found in the query extraction.")
+                return state
+            
             logger.info(f"[_searching_based_on_people_node] Searching based on people names: {people_names} ")
             
             face_detection_results = []
@@ -135,7 +138,57 @@ class ImageSearchingGraph:
             self.add_error(state, f"_searching_based_on_people_node: {str(e)}")
             return state
             
-    
+    async def _searching_based_on_scene_node(self, state: ImageSearchingState) -> ImageSearchingState:
+        
+        try:
+
+            # get the scene description from json extraction
+            scene_description = state.get("json_query_extraction", {}).get("scene", "")
+            logger.info(f"[_searching_based_on_scene_node] Searching based on scene description: {scene_description} ")
+            if not scene_description:
+                logger.info("[_searching_based_on_scene_node] No scene description found in the query extraction.")
+                return state
+            
+            success, result = await self.image_searching_service.get_images_based_on_scene(scene_description, state["project_id"])
+            
+            if success:
+                state["scene_results"] = result
+                logger.info(f"Found {len(result.get('related_image_ids', []))} related images for scene description.")
+            else:
+                logger.warning("No related images found for scene description.")
+                raise ValueError(result.get("error", "Unknown error"))
+            
+            return state
+        
+        except Exception as e:
+            logger.error(f"Error in _searching_based_on_scene_node: {str(e)}")
+            self.add_error(state, f"_searching_based_on_scene_node: {str(e)}")
+            return state
+        
+    async def _combine_searching_results_node(self, state: ImageSearchingState) -> ImageSearchingState:
+        try:
+
+            # Combine results from face-based and scene-based searching
+            
+            success, result = await self.image_searching_service.combine_search_results(
+                face_results=state.get("face_detection_results_combined", {}),
+                scene_results=state.get("scene_results", {})
+            )
+            if not success:
+                raise ValueError(result.get("error", "Unknown error"))
+            
+            state["search_results"] = result
+            logger.info(f"[_combine_searching_results_node] Found {len(result.get('related_image_ids', []))} related iamges for search query.")
+            
+            # logger.info(f"Combined searching results: {result}")
+            
+            return state
+        
+        except Exception as e:
+            logger.error(f"Error in _combine_searching_results_node: {str(e)}")
+            self.add_error(state, f"_combine_searching_results_node: {str(e)}")
+            return state
+        
     def add_error(self, state: ImageSearchingState, msg: str) -> None:
         if not state.get("errors"):
             state["errors"] = []
@@ -149,37 +202,16 @@ class ImageSearchingGraph:
         workflow.add_node("get_people_names_from_supabase", self._get_people_names_from_supabase_node)
         workflow.add_node("get_data_from_search_query", self._get_data_from_search_query_node)
         workflow.add_node("searching_based_on_people", self._searching_based_on_people_node)
-        # workflow.add_node("extract_images_data", self._extract_images_data_node)
-        
-        # workflow.add_edge(START, "get_data_from_search_query")
-        # workflow.add_edge("get_data_from_search_query", "extract_images_data")
-        # workflow.add_edge("extract_images_data", END)
-        
-        workflow.add_edge(START, "get_people_names_from_supabase")
-        workflow.add_edge("get_people_names_from_supabase", "get_data_from_search_query")
-        # add a conditional edge to "searching_based_on_people" if state["json_query_extraction"]["people"] is not empty
-        
-        # Define condition function
-        def condition_on_people(state: dict) -> str:
-            """
-            Decide the next node based on whether people were found.
-            """
-            people = state.get("json_query_extraction", {}).get("people", [])
-            if people:
-                return "searching_based_on_people"
-            else:
-                return END  # or another node if you have a fallback
+        workflow.add_node("searching_based_on_scene", self._searching_based_on_scene_node)
+        workflow.add_node("combine_searching_results", self._combine_searching_results_node)
         
         # Define graph edges
         workflow.add_edge(START, "get_people_names_from_supabase")
         workflow.add_edge("get_people_names_from_supabase", "get_data_from_search_query")
-        
-        # Add conditional branch
-        workflow.add_conditional_edges(
-            "get_data_from_search_query",
-            condition_on_people
-        )    
-            
+        workflow.add_edge("get_data_from_search_query", "searching_based_on_people")
+        workflow.add_edge("searching_based_on_people", "searching_based_on_scene")
+        workflow.add_edge("searching_based_on_scene", "combine_searching_results")
+        workflow.add_edge("combine_searching_results", END)
         
         return workflow.compile()
     

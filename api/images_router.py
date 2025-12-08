@@ -167,9 +167,9 @@ async def upload_zip_images(
         
         # save images_data to a json file for testing
         logger.info(f"Uploaded {len(uploaded_images)} images to project {project_id}")
-        # with open(f"uploaded_images.json", "w") as f:
-        #     import json
-        #     json.dump(images_data, f)
+        with open(f"uploaded_images.json", "w") as f:
+            import json
+            json.dump(images_data, f)
         
         
         return response

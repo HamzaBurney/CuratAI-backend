@@ -8,12 +8,22 @@ import numpy as np
 import cv2
 import json
 import traceback
+from transformers import CLIPProcessor, CLIPModel
+import torch
+import faiss
 
 class ImageSearchingService(BaseService):
     """ Service for searching images"""
     def __init__(self):
         super().__init__()
         self.settings = get_settings()
+        self._load_clip()
+    
+    def _load_clip(self):
+        self.clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
+        self.clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32", use_fast=True)
+        self.clip_model.eval()
+
         
     def get_search_prompt(self, user_query: str, people_names: Optional[List[str]]) -> str:
         search_prompt = f"""
@@ -29,21 +39,22 @@ class ImageSearchingService(BaseService):
             {{
               "people": [list of person names, if any],
               "emotions": [list of emotional states or facial expressions, if any],
-              "objects": [list of physical objects mentioned, if any],
-              "scenes": [list of environment or background descriptions, if any]
+              "scenes": ""
               "errors": [list of any errors encountered, if any]
             }}
 
             Guidelines:
-            - If a category is not mentioned, return an empty list for it.
+            - If a category is not mentioned, return an empty list for "people" or "emotions" and an empty string for "scene".
             - Do not invent data that isn't implied in the text.
-            - Use lowercase words for non-proper nouns (e.g. "smiling", "car", "mountain").
+            - Use lowercase words for non-proper and even proper nouns.
             - Use lowercase for people names
             - Preserve exact names for people (e.g. "Alice", "Dr. John Smith").
             - Do not include explanations or commentary — return valid JSON only.
             - If people names are provided in the "User Query", ensure they are included in the "People Names" list, otherwise give error description in the "errors" list.
             - If there are some spelling mistakes in the "User Query" for the people names, and if they are recognizable from the "People Names" list (eg. User Query has name Alace and People Names list has a name Alice, so correct it), include them in the "people" list, otherwise give error description in the "errors" list.
             - Only include people names that are present in the "User Query" regardless of whether they are in the "People Names" list or not
+            - Extract scene as a single descriptive string that summarizes the physical setting, background elements, environment, or context, excluding people (e.g., "iamges with mountains in the background", "images with person wearing formals", "pictures with rainy street with cars", "pictures with beach at sunset").
+            - Ensure the scene description is literal, and general and do not interpret or summarize beyond what is in the text.
 
             Example 1:
             User Query: "Find pictures of Alice and Bob smiling at a wedding."
@@ -51,18 +62,25 @@ class ImageSearchingService(BaseService):
             {{
               "people": ["Alice", "Bob"],
               "emotions": ["smiling"],
-              "objects": [],
-              "scenes": ["wedding"]
+              "scene": "pictures of people smiling at a wedding",
             }}
 
             Example 2:
-            User Query: "Search for angry people near cars on a rainy street."
+            User Query: "images with angry people near cars on a rainy street."
             Output:
             {{
               "people": [],
               "emotions": ["angry"],
-              "objects": ["car"],
-              "scenes": ["rainy street"]
+              "scene": "images with people near cars on a rainy street"
+            }}
+            
+            Example 3:
+            User Query: "images of hamza with eagles"
+            Output:
+            {{
+              "people": ["hamza"],
+              "emotions": [""],
+              "scene": "images with eagles"
             }}
 
         
@@ -190,3 +208,134 @@ class ImageSearchingService(BaseService):
             self.logger.error(f"Error combining face detection results: {str(e)}")
             return False, {"error": str(e)}
     
+    async def get_images_based_on_scene(self, scene_description: str, project_id: str) -> Tuple[bool, Dict[str, Any]]:
+        """
+        Fetch images related to the scene description using Supabase.
+        """
+        
+        try:
+            self.logger.info(f"Fetching images related to scene description: {scene_description}")
+
+            response = self.db.table("images").select("id, image_url, image_embeddings").eq("project_id", project_id).execute()
+            data = response.data
+
+            if not data:
+                raise ValueError(f"No images found for project_id: {project_id}")
+
+            valid_items = [item for item in data if item.get("image_embeddings")]
+            if not valid_items:
+                raise ValueError(f"No images with embeddings found for project_id: {project_id}")
+
+            image_embeddings = []
+            image_metadata = []
+
+            for item in valid_items:
+                embedding = item["image_embeddings"]
+                if isinstance(embedding, str):
+                    embedding = embedding.strip("[]")
+                    embedding = np.array([float(x.strip()) for x in embedding.split(',')], dtype=np.float32)
+                elif isinstance(embedding, list):
+                    embedding = np.array(embedding, dtype=np.float32)
+                else:
+                    self.logger.warning(f"Skipping image {item['id']} - unexpected embedding format")
+                    continue
+
+                image_embeddings.append(embedding)
+                image_metadata.append({"id": item["id"], "image_url": item["image_url"]})
+
+            if not image_embeddings:
+                raise ValueError(f"No valid embeddings found for project_id: {project_id}")
+
+            embeddings_matrix = np.vstack(image_embeddings).astype('float32')
+            faiss.normalize_L2(embeddings_matrix)
+
+            dimension = embeddings_matrix.shape[1]
+            index = faiss.IndexFlatIP(dimension)
+            index.add(embeddings_matrix)
+
+            scene_embedding = await self._get_text_embedding(scene_description)
+            scene_embedding = np.array(scene_embedding, dtype=np.float32).reshape(1, -1)
+            faiss.normalize_L2(scene_embedding)
+
+            distances, indices = index.search(scene_embedding, len(image_metadata))
+
+            similarity_threshold = 0.25
+            related_images = []
+            for distance, idx in zip(distances[0], indices[0]):
+                if distance >= similarity_threshold:
+                    related_images.append({
+                        "id": image_metadata[idx]["id"],
+                        "image_url": image_metadata[idx]["image_url"],
+                        "similarity_score": float(distance)
+                    })
+
+            related_images.sort(key=lambda x: x["similarity_score"], reverse=True)
+
+            return True, {
+                "related_image_ids": [img["id"] for img in related_images],
+                "image_links": [img["image_url"] for img in related_images],
+                # "similarity_scores": [img["similarity_score"] for img in related_images],
+                # "count": len(related_images)
+            }
+
+        except Exception as e:
+            self.logger.error(f"Error fetching images based on scene description: {e}")
+            return False, {"error": str(e)}
+    
+    async def _get_text_embedding(self, text: str) -> List[float]:
+        inputs = self.clip_processor(text=[text], return_tensors="pt", padding=True)
+        with torch.no_grad():
+            text_features = self.clip_model.get_text_features(**inputs)
+            text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+        return text_features.cpu().numpy().flatten().tolist()
+    
+    async def combine_search_results(self, face_results: Dict[str, Any], scene_results: Dict[str, Any]) -> Tuple[bool, Dict[str, Any]]:
+        """
+        Return only image IDs and links that appear in BOTH face results and scene results.
+        """
+        try:
+            if not face_results and not scene_results:
+                raise ValueError("No search results provided")
+    
+            if not face_results:
+                return True, scene_results
+    
+            if not scene_results:
+                return True, face_results
+    
+            # Build sets of IDs
+            face_ids = set(face_results.get("related_image_ids", []))
+            scene_ids = set(scene_results.get("related_image_ids", []))
+    
+            # Intersection
+            common_ids = face_ids.intersection(scene_ids)
+    
+            # Build proper maps (image_id → image_url)
+            face_map = dict(zip(
+                face_results.get("related_image_ids", []),
+                face_results.get("image_links", [])
+            ))
+    
+            scene_map = dict(zip(
+                scene_results.get("related_image_ids", []),
+                scene_results.get("image_links", [])
+            ))
+    
+            combined_links_set = set()
+
+            for img_id in common_ids:
+                if img_id in face_map:
+                    combined_links_set.add(face_map[img_id])
+                elif img_id in scene_map:
+                    combined_links_set.add(scene_map[img_id])
+
+            combined_links = list(combined_links_set)
+    
+            return True, {
+                "related_image_ids": list(common_ids),
+                "image_links": combined_links
+            }
+    
+        except Exception as e:
+            self.logger.error(f"Error combining search results: {str(e)}")
+            return False, {"error": str(e)}

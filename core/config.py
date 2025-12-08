@@ -47,7 +47,7 @@ class Settings:
         # Storage settings
         self.storage_bucket: str = os.getenv("STORAGE_BUCKET", "user-images")
         self.max_file_size: int = int(os.getenv("MAX_FILE_SIZE", str(50 * 1024 * 1024)))  # 50MB
-        self.allowed_image_extensions: list = [".png", ".jpg", ".jpeg", ".webp", ".gif"]
+        self.allowed_image_extensions: list = [".png", ".jpg", ".jpeg"]
         
         # Security settings
         self.cors_origins: list = os.getenv("CORS_ORIGINS", "*").split(",")

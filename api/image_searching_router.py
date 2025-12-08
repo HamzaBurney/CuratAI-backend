@@ -84,6 +84,7 @@ async def image_searching(
             "face_detection_results_combined": None,
             "search_results": None,
             "json_query_extraction": None,
+            "scene_results": None,
             "errors": []
         }
         
@@ -97,11 +98,12 @@ async def image_searching(
                 detail={"errors": result["errors"]}
             )
             
-        logger.info(f"Image searching completed successfully: {result['face_detection_results_combined']}")
+        # logger.info(f"Image searching completed successfully: {result['face_detection_results_combined']}")
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={
                 "message": "Image searching completed successfully",
+                "result": result['search_results']
                 # "data": result
             }
         )
