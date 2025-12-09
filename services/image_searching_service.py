@@ -11,6 +11,7 @@ import traceback
 from transformers import CLIPProcessor, CLIPModel
 import torch
 import faiss
+import clip
 
 class ImageSearchingService(BaseService):
     """ Service for searching images"""
@@ -20,9 +21,10 @@ class ImageSearchingService(BaseService):
         self._load_clip()
     
     def _load_clip(self):
-        self.clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
-        self.clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32", use_fast=True)
-        self.clip_model.eval()
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.model, self.preprocess = clip.load("ViT-B/32", device=self.device)
+        # self.model, self.preprocess = clip.load("ViT-L/14", device=self.device)
+        self.model.eval()
 
         
     def get_search_prompt(self, user_query: str, people_names: Optional[List[str]]) -> str:
@@ -39,7 +41,7 @@ class ImageSearchingService(BaseService):
             {{
               "people": [list of person names, if any],
               "emotions": [list of emotional states or facial expressions, if any],
-              "scenes": ""
+              "scene": ""
               "errors": [list of any errors encountered, if any]
             }}
 
@@ -53,7 +55,7 @@ class ImageSearchingService(BaseService):
             - If people names are provided in the "User Query", ensure they are included in the "People Names" list, otherwise give error description in the "errors" list.
             - If there are some spelling mistakes in the "User Query" for the people names, and if they are recognizable from the "People Names" list (eg. User Query has name Alace and People Names list has a name Alice, so correct it), include them in the "people" list, otherwise give error description in the "errors" list.
             - Only include people names that are present in the "User Query" regardless of whether they are in the "People Names" list or not
-            - Extract scene as a single descriptive string that summarizes the physical setting, background elements, environment, or context, excluding people (e.g., "iamges with mountains in the background", "images with person wearing formals", "pictures with rainy street with cars", "pictures with beach at sunset").
+            - Extract scene as a single descriptive string that summarizes the physical setting, background elements, environment, or context, excluding people (e.g., "snowy mountains", "formal dress", "rainy street with cars", "beach at sunset").
             - Ensure the scene description is literal, and general and do not interpret or summarize beyond what is in the text.
 
             Example 1:
@@ -62,7 +64,7 @@ class ImageSearchingService(BaseService):
             {{
               "people": ["Alice", "Bob"],
               "emotions": ["smiling"],
-              "scene": "pictures of people smiling at a wedding",
+              "scene": "wedding",
             }}
 
             Example 2:
@@ -71,7 +73,7 @@ class ImageSearchingService(BaseService):
             {{
               "people": [],
               "emotions": ["angry"],
-              "scene": "images with people near cars on a rainy street"
+              "scene": "cars on a rainy street"
             }}
             
             Example 3:
@@ -80,7 +82,7 @@ class ImageSearchingService(BaseService):
             {{
               "people": ["hamza"],
               "emotions": [""],
-              "scene": "images with eagles"
+              "scene": "eagles"
             }}
 
         
@@ -247,19 +249,21 @@ class ImageSearchingService(BaseService):
                 raise ValueError(f"No valid embeddings found for project_id: {project_id}")
 
             embeddings_matrix = np.vstack(image_embeddings).astype('float32')
-            faiss.normalize_L2(embeddings_matrix)
-
-            dimension = embeddings_matrix.shape[1]
-            index = faiss.IndexFlatIP(dimension)
+            # faiss.normalize_L2(embeddings_matrix)
+            index = faiss.IndexFlatIP(embeddings_matrix.shape[1])  # inner product = cosine similarity
             index.add(embeddings_matrix)
 
+            # dimension = embeddings_matrix.shape[1]
+            # index = faiss.IndexFlatIP(dimension)
+            # index.add(embeddings_matrix)
+
             scene_embedding = await self._get_text_embedding(scene_description)
-            scene_embedding = np.array(scene_embedding, dtype=np.float32).reshape(1, -1)
-            faiss.normalize_L2(scene_embedding)
+            # scene_embedding = np.array(scene_embedding, dtype=np.float32).reshape(1, -1)
+            # faiss.normalize_L2(scene_embedding)
 
             distances, indices = index.search(scene_embedding, len(image_metadata))
 
-            similarity_threshold = 0.25
+            similarity_threshold = 0.22
             related_images = []
             for distance, idx in zip(distances[0], indices[0]):
                 if distance >= similarity_threshold:
@@ -283,59 +287,58 @@ class ImageSearchingService(BaseService):
             return False, {"error": str(e)}
     
     async def _get_text_embedding(self, text: str) -> List[float]:
-        inputs = self.clip_processor(text=[text], return_tensors="pt", padding=True)
         with torch.no_grad():
-            text_features = self.clip_model.get_text_features(**inputs)
-            text_features = text_features / text_features.norm(dim=-1, keepdim=True)
-        return text_features.cpu().numpy().flatten().tolist()
+            text_encoded = self.model.encode_text(clip.tokenize([text]).to(self.device))
+            text_encoded /= text_encoded.norm(dim=-1, keepdim=True)
+            text_vector = text_encoded.cpu().numpy().astype("float32")
+        return text_vector
     
-    async def combine_search_results(self, face_results: Dict[str, Any], scene_results: Dict[str, Any]) -> Tuple[bool, Dict[str, Any]]:
+    async def combine_search_results(self, face_results: Dict[str, Any], scene_results: Dict[str, Any], scene_description: str, people: List[str]) -> Tuple[bool, Dict[str, Any]]:
         """
         Return only image IDs and links that appear in BOTH face results and scene results.
+        If either face_results or scene_results is empty, return the one that has data.
+        If both are empty, raise an error.
         """
         try:
-            if not face_results and not scene_results:
+            # Check if both are completely empty
+            face_has_data = face_results and face_results.get("related_image_ids")
+            scene_has_data = scene_results and scene_results.get("related_image_ids")
+
+            if not face_has_data and not scene_has_data:
                 raise ValueError("No search results provided")
-    
-            if not face_results:
+            
+            if scene_description and not scene_has_data:
+                raise ValueError("No search results provided for the scene description")
+            
+            if len(people) > 0 and not face_has_data:
+                raise ValueError("No search results provided for the specified people names")
+
+            # If only one has data, return that one
+            if not face_has_data:
                 return True, scene_results
-    
-            if not scene_results:
+
+            if not scene_has_data:
                 return True, face_results
-    
-            # Build sets of IDs
-            face_ids = set(face_results.get("related_image_ids", []))
-            scene_ids = set(scene_results.get("related_image_ids", []))
-    
-            # Intersection
-            common_ids = face_ids.intersection(scene_ids)
-    
-            # Build proper maps (image_id → image_url)
-            face_map = dict(zip(
-                face_results.get("related_image_ids", []),
-                face_results.get("image_links", [])
-            ))
-    
-            scene_map = dict(zip(
-                scene_results.get("related_image_ids", []),
-                scene_results.get("image_links", [])
-            ))
-    
-            combined_links_set = set()
+                        
+            # Convert each list of related_image_ids into a set
+            sets_related_image_ids = [set(face_results["related_image_ids"]), set(scene_results["related_image_ids"])]
+            sets_image_links = [set(face_results["image_links"]), set(scene_results["image_links"])]
 
-            for img_id in common_ids:
-                if img_id in face_map:
-                    combined_links_set.add(face_map[img_id])
-                elif img_id in scene_map:
-                    combined_links_set.add(scene_map[img_id])
+            if not sets_related_image_ids or not sets_image_links:
+                raise ValueError("No valid related_image_ids or image_links found in face detection results")
 
-            combined_links = list(combined_links_set)
-    
+            # Find intersection across all sets
+            common_ids = set.intersection(*sets_related_image_ids)
+            common_links = set.intersection(*sets_image_links)
+            
+            if not common_ids or not common_links:
+                raise ValueError("No common images found between face and scene search results")
+            
             return True, {
-                "related_image_ids": list(common_ids),
-                "image_links": combined_links
+                "related_image_ids": list(common_ids), # list of image IDs
+                "image_links": list(common_links) # list of image URLs
             }
-    
+
         except Exception as e:
             self.logger.error(f"Error combining search results: {str(e)}")
             return False, {"error": str(e)}

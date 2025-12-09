@@ -172,7 +172,9 @@ class ImageSearchingGraph:
             
             success, result = await self.image_searching_service.combine_search_results(
                 face_results=state.get("face_detection_results_combined", {}),
-                scene_results=state.get("scene_results", {})
+                scene_results=state.get("scene_results", {}),
+                scene_description=state.get("json_query_extraction", {}).get("scene", ""),
+                people=state.get("json_query_extraction", {}).get("people", [])
             )
             if not success:
                 raise ValueError(result.get("error", "Unknown error"))
