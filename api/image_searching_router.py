@@ -21,7 +21,7 @@ from core.exceptions import (
     DatabaseException
 )
 from models.face_recogntion_model import FaceRecognitionRequest
-from graph.image_searching_graph import ImageSearchingGraph
+from graph.image_searching_graph_groq import ImageSearchingGraph
 from faster_whisper import WhisperModel
 import torch
 import io
