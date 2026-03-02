@@ -1,0 +1,39 @@
+# Core FastAPI and ASGI
+fastapi
+uvicorn[standard]
+pydantic
+pydantic[email]
+
+# Database and Auth
+supabase
+python-dotenv
+
+# File handling and utilities
+python-multipart
+requests
+
+# Data processing (if needed for future features)
+numpy
+pandas
+tf-keras
+faster-whisper 
+torch
+torchvision
+scikit-learn
+
+deepface
+opencv-python
+
+# Development and testing (optional)
+pytest
+pytest-asyncio
+httpx
+
+# Type hints and linting (optional)
+typing-extensions
+
+# LangChain and related libraries
+langchain
+langchain-core
+langchain-openai
+langgraph
