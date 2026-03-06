@@ -26,6 +26,8 @@ git+https://github.com/openai/CLIP.git
 
 deepface
 opencv-python
+imagehash
+Pillow
 
 # Development and testing (optional)
 pytest

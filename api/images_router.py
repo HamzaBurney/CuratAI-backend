@@ -16,6 +16,8 @@ from models.images_model import (
 )
 from services.images_upload_service import ImagesUploadService
 from services.project_service import ProjectService
+from services.duplicate_detection_service import DuplicateDetectionService
+from models.duplicate_detection_model import DuplicateDetectionResponse
 from core.logging import get_logger
 from core.dependencies import get_current_user_id
 from core.exceptions import (
@@ -40,6 +42,11 @@ def get_project_service() -> ProjectService:
     return ProjectService()
 
 
+def get_duplicate_detection_service() -> DuplicateDetectionService:
+    """Dependency to get duplicate detection service instance."""
+    return DuplicateDetectionService()
+
+
 @router.post(
     "/upload/zip",
     response_model=ZipUploadResponse,
@@ -58,7 +65,8 @@ async def upload_zip_images(
     file: UploadFile = File(..., description="ZIP file containing images"),
     user_id: str = Depends(get_current_user_id),
     images_service: ImagesUploadService = Depends(get_images_service),
-    project_service: ProjectService = Depends(get_project_service)
+    project_service: ProjectService = Depends(get_project_service),
+    duplicate_service: DuplicateDetectionService = Depends(get_duplicate_detection_service)
 ):
     """
     Upload images from a ZIP file.
@@ -128,11 +136,17 @@ async def upload_zip_images(
                             logger.debug(f"Upload result for {file_name}: {success}, {result}")
                             
                             if success:
-                                uploaded_images.append({
+                                image_record = {
                                     "image_url": result["image_url"],
                                     "project_id": project_id,
                                     "storage_path": result["storage_path"]
-                                })
+                                }
+                                try:
+                                    fingerprints = duplicate_service.compute_image_fingerprints(img_bytes)
+                                    image_record.update(fingerprints)
+                                except Exception as fp_err:
+                                    logger.warning(f"Failed to compute fingerprints for {file_name}: {fp_err}")
+                                uploaded_images.append(image_record)
                                 
                                 img_b64 = base64.b64encode(img_bytes).decode("utf-8")
                                 
@@ -439,4 +453,45 @@ async def delete_project_image(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"error": "DELETE_IMAGE_FAILED", "message": "Failed to delete image"}
+        )
+
+
+@router.post(
+    "/detect-duplicates",
+    response_model=DuplicateDetectionResponse,
+    responses={
+        401: {"model": ErrorResponse, "description": "Unauthorized - Invalid or missing token"},
+        404: {"model": ErrorResponse, "description": "Project not found"},
+        500: {"model": ErrorResponse, "description": "Internal server error"},
+    },
+    summary="Detect Duplicate Images",
+    description="Run 4-layer duplicate detection (MD5, pHash, EfficientNet, CLIP) on all images in a project.",
+)
+async def detect_duplicates(
+    project_id: str = Form(..., description="ID of the project to scan for duplicates"),
+    user_id: str = Depends(get_current_user_id),
+    project_service: ProjectService = Depends(get_project_service),
+    duplicate_service: DuplicateDetectionService = Depends(get_duplicate_detection_service),
+    duplicate_threshold: float = Form(0.87, description="Similarity threshold for near-duplicate detection (0 to 1)")
+):
+    try:
+        logger.info(f"Detect duplicates request for project: {project_id}")
+
+        if not project_service.validate_project_exists(project_id):
+            raise ResourceNotFoundException("Project", project_id)
+
+        result = duplicate_service.detect_duplicates(project_id, duplicate_threshold)
+        return result
+
+    except ResourceNotFoundException as e:
+        logger.error(f"Project not found: {e.message}")
+        raise HTTPException(
+            status_code=e.status_code,
+            detail={"error": e.error_code, "message": e.message},
+        )
+    except Exception as e:
+        logger.error(f"Unexpected error in detect duplicates: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": "DETECT_DUPLICATES_FAILED", "message": "An unexpected error occurred during duplicate detection"},
         )
