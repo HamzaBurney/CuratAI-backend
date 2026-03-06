@@ -20,6 +20,9 @@ faster-whisper
 torch
 torchvision
 scikit-learn
+transformers
+faiss-cpu
+git+https://github.com/openai/CLIP.git
 
 deepface
 opencv-python

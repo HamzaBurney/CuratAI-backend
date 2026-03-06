@@ -260,6 +260,148 @@ class ImagesUploadService(BaseService):
             self.logger.error(f"Failed to get project images: {e}")
             raise StorageException(f"Failed to retrieve project images: {str(e)}")
     
+    def save_image(self, image_id: str, project_id: str, image_bytes: bytes, file_name: Optional[str] = None) -> Tuple[bool, Dict[str, Any]]:
+        """
+        Overwrite an existing image in storage and update its record in the images table.
+
+        The file is written back to the *same* ``storage_path`` that is already
+        stored in the database so the public URL is preserved (no orphaned files).
+
+        Args:
+            image_id: ID of the image record to update.
+            project_id: ID of the owning project (used for authorization checks).
+            image_bytes: Raw bytes of the edited image.
+            file_name: Optional new filename. When supplied the extension is used to
+                       infer the MIME type; the rest is ignored (path stays the same).
+
+        Returns:
+            Tuple of (success, result)
+        """
+        try:
+            # Fetch existing record
+            result = self.db.table("images").select("*").eq("id", image_id).eq("project_id", project_id).execute()
+            if not result.data:
+                return False, {
+                    "error": "not_found",
+                    "message": "Image not found",
+                    "image_id": image_id,
+                    "project_id": project_id,
+                }
+
+            image_record = result.data[0]
+            storage_path = image_record.get("storage_path")
+
+            if not storage_path:
+                return False, {
+                    "error": "missing_storage_path",
+                    "message": "Existing image record has no storage path",
+                    "image_id": image_id,
+                }
+
+            bucket = self.settings.storage_bucket
+
+            # Overwrite file at the same path
+            self.db.storage.from_(bucket).update(storage_path, image_bytes)
+
+            # Re-fetch public URL (it remains the same path, but call ensures freshness)
+            public_url = self.db.storage.from_(bucket).get_public_url(storage_path)
+
+            # Update database record
+            self.db.table("images").update({
+                "image_url": public_url,
+                "storage_path": storage_path,
+            }).eq("id", image_id).execute()
+
+            self.logger.info(f"Image overwritten successfully: {storage_path}")
+
+            return True, {
+                "message": "Image saved successfully",
+                "image_id": image_id,
+                "project_id": project_id,
+                "image_url": public_url,
+                "storage_path": storage_path,
+            }
+
+        except Exception as e:
+            self.logger.error(f"Failed to save image {image_id}: {e}")
+            return False, {
+                "error": "save_failed",
+                "message": f"Failed to save image: {str(e)}",
+                "image_id": image_id,
+                "project_id": project_id,
+            }
+
+    def save_image_as_copy(self, project_id: str, image_bytes: bytes, file_name: str) -> Tuple[bool, Dict[str, Any]]:
+        """
+        Upload an edited image as a brand-new record (save as copy).
+
+        A UUID-prefixed unique filename is generated so there are no collisions
+        in storage, and a new row is inserted into the ``images`` table.
+
+        Args:
+            project_id: ID of the owning project.
+            image_bytes: Raw bytes of the edited image.
+            file_name: Desired filename for the copy (extension is preserved).
+
+        Returns:
+            Tuple of (success, result)
+        """
+        try:
+            # Validate file size
+            if len(image_bytes) > self.settings.max_file_size:
+                return False, {
+                    "error": "file_too_large",
+                    "message": f"File size exceeds the maximum allowed size of {self.settings.max_file_size} bytes",
+                    "project_id": project_id,
+                }
+
+            file_extension = file_name.split(".")[-1].lower() if "." in file_name else "png"
+            unique_filename = f"{uuid.uuid4()}_{project_id}.{file_extension}"
+
+            # Upload to storage
+            success, upload_result = self.upload_image_to_storage(project_id, unique_filename, image_bytes)
+            if not success:
+                return False, upload_result
+
+            # Insert new DB record
+            new_record = {
+                "image_url": upload_result["image_url"],
+                "project_id": project_id,
+                "storage_path": upload_result["storage_path"],
+            }
+            insert_result = self.db.table("images").insert(new_record).execute()
+
+            if not insert_result.data:
+                # Roll back the storage upload to avoid orphaned files
+                try:
+                    self.db.storage.from_(self.settings.storage_bucket).remove([upload_result["storage_path"]])
+                except Exception:
+                    pass
+                return False, {
+                    "error": "db_insert_failed",
+                    "message": "Failed to insert new image record into the database",
+                    "project_id": project_id,
+                }
+
+            new_image_id = insert_result.data[0]["id"]
+            self.logger.info(f"Image copy created successfully: {upload_result['storage_path']}")
+
+            return True, {
+                "message": "Image saved as copy successfully",
+                "image_id": new_image_id,
+                "project_id": project_id,
+                "image_url": upload_result["image_url"],
+                "storage_path": upload_result["storage_path"],
+            }
+
+        except Exception as e:
+            self.logger.error(f"Failed to save image as copy for project {project_id}: {e}")
+            return False, {
+                "error": "save_copy_failed",
+                "message": f"Failed to save image as copy: {str(e)}",
+                "project_id": project_id,
+            }
+
     def delete_image(self, project_id: str, image_id: str) -> Tuple[bool, Dict[str, Any]]:
         """
         Delete an image from project.

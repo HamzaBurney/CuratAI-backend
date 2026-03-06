@@ -9,7 +9,10 @@ from fastapi import APIRouter, UploadFile, File, Form, HTTPException, status, De
 from fastapi.responses import JSONResponse
 from models.images_model import (
     ZipUploadResponse,
-    ErrorResponse
+    ErrorResponse,
+    SaveImageRequest,
+    SaveImageCopyRequest,
+    SaveImageResponse,
 )
 from services.images_upload_service import ImagesUploadService
 from services.project_service import ProjectService
@@ -128,6 +131,7 @@ async def upload_zip_images(
                                 uploaded_images.append({
                                     "image_url": result["image_url"],
                                     "project_id": project_id,
+                                    "storage_path": result["storage_path"]
                                 })
                                 
                                 img_b64 = base64.b64encode(img_bytes).decode("utf-8")
@@ -239,6 +243,147 @@ async def list_project_images(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"error": "LIST_IMAGES_FAILED", "message": "Failed to retrieve project images"}
+        )
+
+
+@router.post(
+    "/save",
+    response_model=SaveImageResponse,
+    responses={
+        400: {"model": ErrorResponse, "description": "Validation error"},
+        401: {"model": ErrorResponse, "description": "Unauthorized - Invalid or missing token"},
+        404: {"model": ErrorResponse, "description": "Image or project not found"},
+        500: {"model": ErrorResponse, "description": "Internal server error"},
+    },
+    summary="Save Edited Image",
+    description="Overwrite an existing image in storage with edited content and update the images table.",
+)
+async def save_image(
+    request: SaveImageRequest,
+    user_id: str = Depends(get_current_user_id),
+    images_service: ImagesUploadService = Depends(get_images_service),
+):
+    """
+    Save an edited image back over the original.
+
+    - **image_id**: ID of the image record to overwrite
+    - **project_id**: ID of the owning project
+    - **image_data**: Base64-encoded bytes of the edited image
+    - **file_name**: Optional – used only to infer the file extension
+    """
+    try:
+        logger.info(f"Save image request: image_id={request.image_id}, project_id={request.project_id}")
+
+        try:
+            image_bytes = base64.b64decode(request.image_data)
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error": "INVALID_IMAGE_DATA", "message": "image_data is not valid base64"},
+            )
+
+        success, result = images_service.save_image(
+            image_id=request.image_id,
+            project_id=request.project_id,
+            image_bytes=image_bytes,
+            file_name=request.file_name,
+        )
+
+        if not success:
+            error_code = result.get("error", "save_failed")
+            if error_code == "not_found":
+                raise ResourceNotFoundException("Image", request.image_id)
+            raise StorageException(result.get("message", "Failed to save image"))
+
+        logger.info(f"Image saved successfully: {request.image_id}")
+        return result
+
+    except (ResourceNotFoundException, StorageException) as e:
+        logger.error(f"Save image error: {e.message}")
+        raise HTTPException(
+            status_code=e.status_code,
+            detail={"error": e.error_code, "message": e.message},
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error in save image: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": "SAVE_IMAGE_FAILED", "message": "An unexpected error occurred while saving the image"},
+        )
+
+
+@router.post(
+    "/save-copy",
+    response_model=SaveImageResponse,
+    responses={
+        400: {"model": ErrorResponse, "description": "Validation error"},
+        401: {"model": ErrorResponse, "description": "Unauthorized - Invalid or missing token"},
+        404: {"model": ErrorResponse, "description": "Project not found"},
+        500: {"model": ErrorResponse, "description": "Internal server error"},
+    },
+    summary="Save Edited Image as Copy",
+    description="Upload the edited image as a new entry in storage and the images table, leaving the original untouched.",
+)
+async def save_image_as_copy(
+    request: SaveImageCopyRequest,
+    user_id: str = Depends(get_current_user_id),
+    images_service: ImagesUploadService = Depends(get_images_service),
+    project_service: ProjectService = Depends(get_project_service),
+):
+    """
+    Save an edited image as a brand-new copy.
+
+    - **project_id**: ID of the project to attach the copy to
+    - **image_data**: Base64-encoded bytes of the edited image
+    - **file_name**: Filename for the new copy (extension determines storage format)
+    """
+    try:
+        logger.info(f"Save image as copy request: project_id={request.project_id}, file_name={request.file_name}")
+
+        if not project_service.validate_project_exists(request.project_id):
+            raise ResourceNotFoundException("Project", request.project_id)
+
+        try:
+            image_bytes = base64.b64decode(request.image_data)
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error": "INVALID_IMAGE_DATA", "message": "image_data is not valid base64"},
+            )
+
+        success, result = images_service.save_image_as_copy(
+            project_id=request.project_id,
+            image_bytes=image_bytes,
+            file_name=request.file_name,
+        )
+
+        if not success:
+            error_code = result.get("error", "save_copy_failed")
+            if error_code == "file_too_large":
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail={"error": "FILE_TOO_LARGE", "message": result.get("message")},
+                )
+            raise StorageException(result.get("message", "Failed to save image as copy"))
+
+        logger.info(f"Image copy created: {result.get('image_id')} in project {request.project_id}")
+        return result
+
+    except (ResourceNotFoundException, StorageException) as e:
+        logger.error(f"Save image as copy error: {e.message}")
+        raise HTTPException(
+            status_code=e.status_code,
+            detail={"error": e.error_code, "message": e.message},
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error in save image as copy: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": "SAVE_COPY_FAILED", "message": "An unexpected error occurred while saving the image copy"},
         )
 
 
