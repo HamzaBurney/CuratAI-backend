@@ -437,9 +437,9 @@ class ImagesUploadService(BaseService):
             self.db.table("images").delete().eq("id", image_id).execute()
             
             # Update project image count
-            self.db.table("projects").update({
-                "image_count": self.db.table("projects").select("image_count").eq("id", project_id).execute().data[0]["image_count"] - 1
-            }).eq("id", project_id).execute()
+            # self.db.table("projects").update({
+            #     "image_count": self.db.table("projects").select("image_count").eq("id", project_id).execute().data[0]["image_count"] - 1
+            # }).eq("id", project_id).execute()
             
             self.logger.info(f"Image deleted successfully: {image_id}")
             

@@ -30,6 +30,7 @@ from api.faces_recognition_router import router as faces_recognition_router
 from api.image_searching_router import router as image_searching_router
 from api.albums_router import router as albums_router
 from api.face_expression_recognition_router import router as face_expression_recognition_router
+from api.image_quality_router import router as image_quality_router
 
 # Initialize logger
 logger = get_logger(__name__)
@@ -156,6 +157,7 @@ def create_app() -> FastAPI:
     app.include_router(image_searching_router)
     app.include_router(albums_router)
     app.include_router(face_expression_recognition_router)
+    app.include_router(image_quality_router)
     
     # Root endpoint
     @app.get("/", tags=["root"])

@@ -28,6 +28,7 @@ deepface
 opencv-python
 imagehash
 Pillow
+scikit-image
 
 # Development and testing (optional)
 pytest
